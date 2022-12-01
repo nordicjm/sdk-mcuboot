@@ -78,7 +78,12 @@
 
 BOOT_LOG_MODULE_DECLARE(mcuboot);
 
+#if defined(CONFIG_BOOT_MAX_LINE_INPUT_LEN) && CONFIG_BOOT_MAX_LINE_INPUT_LEN > 512
+#define BOOT_SERIAL_INPUT_MAX   CONFIG_BOOT_MAX_LINE_INPUT_LEN
+#else
 #define BOOT_SERIAL_INPUT_MAX   512
+#endif
+
 #define BOOT_SERIAL_OUT_MAX     (128 * BOOT_IMAGE_NUMBER)
 
 #ifdef __ZEPHYR__
@@ -421,6 +426,25 @@ bs_upload(char *buf, int len)
         goto out;
     }
 
+
+extern int check_netcore_status();
+
+int tehstatus = check_netcore_status();
+
+if (tehstatus == 1) {
+//busy
+rc = 10; //MGMT_ERR_EBUSY;
+LOG_ERR("busy");
+goto out;
+} else if (tehstatus == 0) {
+//finished
+rc = 0;
+LOG_ERR("fin");
+goto out;
+}
+
+
+
     if (img_chunk_off == 0) {
         /* Receiving chunk with 0 offset resets the upload state; this basically
          * means that upload has started from beginning.
@@ -552,10 +576,18 @@ out:
     BOOT_LOG_INF("RX: 0x%x", rc);
     zcbor_map_start_encode(cbor_state, 10);
     zcbor_tstr_put_lit_cast(cbor_state, "rc");
-    zcbor_uint32_put(cbor_state, rc);
-    if (rc == 0) {
+if (rc == 10) {
+    zcbor_int32_put(cbor_state, -1);
+} else {
+    zcbor_int32_put(cbor_state, rc);
+}
+
         zcbor_tstr_put_lit_cast(cbor_state, "off");
+    if (rc == 0) {
         zcbor_uint32_put(cbor_state, curr_off);
+} else {
+//        zcbor_int32_put(cbor_state, (curr_off - img_chunk_len));
+        zcbor_int32_put(cbor_state, -10);
     }
     zcbor_map_end_encode(cbor_state, 10);
 

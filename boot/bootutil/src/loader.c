@@ -1342,6 +1342,8 @@ done:
 }
 #endif /* MCUBOOT_HW_ROLLBACK_PROT */
 
+#if !defined(MCUBOOT_DIRECT_XIP) && !defined(MCUBOOT_RAM_LOAD)
+
 #if defined(CONFIG_MCUBOOT_CLEANUP_UNUSABLE_SECONDARY) &&\
 (defined(PM_S1_ADDRESS) || defined(CONFIG_SOC_NRF5340_CPUAPP))
 

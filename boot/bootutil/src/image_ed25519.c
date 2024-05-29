@@ -10,6 +10,11 @@
 
 #include "mcuboot_config/mcuboot_config.h"
 
+#if defined(CONFIG_NRF_SECURITY)
+/* We are not really using the MBEDTLS but need the ASN.1 parsing funcitons */
+#define MBEDTLS_ASN1_PARSE_C
+#endif
+
 #ifdef MCUBOOT_SIGN_ED25519
 #include "bootutil/sign_key.h"
 

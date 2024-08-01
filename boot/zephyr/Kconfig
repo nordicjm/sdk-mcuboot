@@ -721,6 +721,22 @@ config MCUBOOT_BOOT_BANNER
 config BOOT_BANNER_STRING
         default "Using Zephyr OS build" if MCUBOOT_BOOT_BANNER
 
+config BOOT_DECOMPRESSION_SUPPORT
+	bool
+	default y
+# if 
+
+menuconfig BOOT_DECOMPRESSION
+	bool "Decompression"
+	depends on NRF_COMPRESS && NRF_COMPRESS_DECOMPRESSION && (NRF_COMPRESS_LZMA_VERSION_LZMA1 || NRF_COMPRESS_LZMA_VERSION_LZMA2)
+	select NRF_COMPRESS_CLEANUP
+	depends on !SINGLE_APPLICATION_SLOT && !BOOT_ENCRYPT_IMAGE && BOOT_UPGRADE_ONLY
+	depends on UPDATEABLE_IMAGE_NUMBER = 1
+	help
+	  If enabled, will include support for compressed images being loaded to the secondary slot
+	  which then get decompressed into the primary slot. This mode allows the secondary slot to
+	  be smaller than primary slot which otherwise would not be allowed.
+
 endmenu
 
 config MCUBOOT_DEVICE_SETTINGS

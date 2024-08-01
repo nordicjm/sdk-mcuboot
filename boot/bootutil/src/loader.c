@@ -1570,12 +1570,64 @@ boot_copy_region(struct boot_loader_state *state,
         }
 #endif
 
+//todo
+#ifdef MCUBOOT_decompress
+        image_index = BOOT_CURR_IMG(state);
+        if ((flash_area_get_id(fap_src) == FLASH_AREA_IMAGE_SECONDARY(image_index) ||
+             flash_area_get_id(fap_dst) == FLASH_AREA_IMAGE_SECONDARY(image_index)) &&
+            !(flash_area_get_id(fap_src) == FLASH_AREA_IMAGE_SECONDARY(image_index) &&
+              flash_area_get_id(fap_dst) == FLASH_AREA_IMAGE_SECONDARY(image_index))) {
+            /* assume the secondary slot as src, needs decryption */
+            hdr = boot_img_hdr(state, BOOT_SECONDARY_SLOT);
+            off = off_dst;
+            if (flash_area_get_id(fap_dst) == FLASH_AREA_IMAGE_SECONDARY(image_index)) {
+                hdr = boot_img_hdr(state, BOOT_PRIMARY_SLOT);
+            }
+            if (IS_COMPRESSED(hdr)) {
+                uint32_t abs_off = off + bytes_copied;
+                if (abs_off < hdr->ih_hdr_size) {
+                    /* do not decrypt header */
+                    if (abs_off + chunk_sz > hdr->ih_hdr_size) {
+                        /* The lower part of the chunk contains header data */
+                        blk_off = 0;
+                        blk_sz = chunk_sz - (hdr->ih_hdr_size - abs_off);
+                        idx = hdr->ih_hdr_size  - abs_off;
+                    } else {
+                        /* The chunk contains exclusively header data */
+                        blk_sz = 0; /* nothing to decrypt */
+                    }
+                } else {
+                    idx = 0;
+                    blk_sz = chunk_sz;
+                    blk_off = (abs_off - hdr->ih_hdr_size) & 0xf;
+                }
+
+                if (blk_sz > 0)
+                {
+                    tlv_off = BOOT_TLV_OFF(hdr);
+                    if (abs_off + chunk_sz > tlv_off) {
+                        /* do not decrypt TLVs */
+                        if (abs_off >= tlv_off) {
+                            blk_sz = 0;
+                        } else {
+                            blk_sz = tlv_off - abs_off;
+                        }
+                    }
+
+//todo
+//                    boot_encrypt(BOOT_CURR_ENC(state), image_index, fap_src,
+//                            (abs_off + idx) - hdr->ih_hdr_size, blk_sz,
+//                            blk_off, &buf[idx]);
+                }
+            }
+#else
         rc = flash_area_write(fap_dst, off_dst + bytes_copied, buf, chunk_sz);
         if (rc != 0) {
             return BOOT_EFLASH;
         }
 
         bytes_copied += chunk_sz;
+#endif
 
         MCUBOOT_WATCHDOG_FEED();
     }

@@ -49,6 +49,8 @@
 #include "bootutil/boot_hooks.h"
 #include "bootutil/mcuboot_status.h"
 
+#include <nrf_compress/implementation.h>
+
 #ifdef __ZEPHYR__
 #include <zephyr/sys/reboot.h>
 #endif
@@ -1491,6 +1493,14 @@ boot_copy_region(struct boot_loader_state *state,
     uint32_t blk_sz;
     uint8_t image_index;
 #endif
+#ifdef MCUBOOT_DECOMPRESS_IMAGES
+    struct image_header *hdr;
+    uint8_t image_index;
+    bool compression_init = false;
+    struct nrf_compress_implementation *compression;
+    TARGET_STATIC uint8_t second_buf[4] __attribute__((aligned(4)));
+uint8_t second_buf_size = 0;
+#endif
 
     TARGET_STATIC uint8_t buf[BUF_SZ] __attribute__((aligned(4)));
 
@@ -1571,7 +1581,7 @@ boot_copy_region(struct boot_loader_state *state,
 #endif
 
 //todo
-#ifdef MCUBOOT_decompress
+#ifdef MCUBOOT_DECOMPRESS_IMAGES
         image_index = BOOT_CURR_IMG(state);
         if ((flash_area_get_id(fap_src) == FLASH_AREA_IMAGE_SECONDARY(image_index) ||
              flash_area_get_id(fap_dst) == FLASH_AREA_IMAGE_SECONDARY(image_index)) &&
@@ -1614,6 +1624,93 @@ boot_copy_region(struct boot_loader_state *state,
                         }
                     }
 
+                    if (compression_init == false) {
+                        compression = nrf_compress_implementation_find(NRF_COMPRESS_TYPE_LZMA);
+
+                        if (compression == NULL || compression->init == NULL || compression->deinit == NULL || compression->decompress_bytes_needed == NULL || compression->decompress == NULL) {
+                            /* Compression library missing or missing required function pointer */
+                            return 4;
+                        }
+
+                        rc = compression->init();
+
+                        if (rc) {
+                            return 4;
+                        }
+
+                        compression_init = true;
+                    }
+
+uint16_t tmp_off = 0;
+const uint8_t min_write_size = 4;
+
+while (tmp_off < blk_sz) {
+                    rc = compression->decompress_bytes_needed();
+
+if (rc <= 0) {
+//oh
+}
+
+if (rc > (blk_sz - tmp_off)) {
+rc = (blk_sz - tmp_off);
+}
+
+uint32_t offset;
+uint8_t **output;
+uint32_t output_size;
+
+                    rc = compression->decompress(&buf[idx + tmp_off], rc, false, &offset, output, &output_size);
+
+if (offset == 0) {
+break;
+}
+
+if (second_buf_size > 0) {
+if ((second_buf_size + output_size) >= min_write_size) {
+memcpy(&second_buf[second_buf_size], output, (min_write_size - second_buf_size));
+        rc = flash_area_write(fap_dst, off_dst + bytes_copied + tmp_off, second_buf, min_write_size);
+        if (rc != 0) {
+            return BOOT_EFLASH;
+        }
+
+tmp_off += min_write_size;
+
+memmove(output, &output[(min_write_size - second_buf_size)], output_size - (min_write_size - second_buf_size));
+output_size -= (min_write_size - second_buf_size);
+second_buf_size = 0;
+}
+}
+
+if ((output_size % min_write_size) != 0) {
+second_buf_size = output_size % min_write_size;
+memcpy(second_buf, output[output_size - 1 - second_buf_size], second_buf_size);
+output_size -= second_buf_size;
+}
+
+
+        rc = flash_area_write(fap_dst, off_dst + bytes_copied + tmp_off, output, output_size);
+        if (rc != 0) {
+            return BOOT_EFLASH;
+        }
+
+
+tmp_off += offset;
+}
+
+        bytes_copied += chunk_sz;
+
+if (blk_sz != tmp_off) {
+        bytes_copied -= blk_sz;
+        bytes_copied += tmp_off;
+}
+
+
+//second_buf
+/*
+boot_encrypt(struct enc_key_data *enc_state, int image_index,
+        const struct flash_area *fap, uint32_t off, uint32_t sz,
+        uint32_t blk_off, uint8_t *buf)
+*/
 //todo
 //                    boot_encrypt(BOOT_CURR_ENC(state), image_index, fap_src,
 //                            (abs_off + idx) - hdr->ih_hdr_size, blk_sz,
@@ -1631,6 +1728,17 @@ boot_copy_region(struct boot_loader_state *state,
 
         MCUBOOT_WATCHDOG_FEED();
     }
+
+#ifdef MCUBOOT_DECOMPRESS_IMAGES
+    if (compression_init == true) {
+        /* Clean up */
+        rc = compression->deinit();
+
+        if (rc) {
+//??
+        }
+    }
+#endif
 
     return 0;
 }

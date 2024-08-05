@@ -1483,33 +1483,35 @@ boot_copy_region_decompress(struct boot_loader_state *state,
                  const struct flash_area *fap_dst,
                  uint32_t off_src, uint32_t off_dst, uint32_t sz, uint8_t *buf)
 {
-int rc;
+    int rc;
     struct image_header *hdr;
-uint32_t pos = 0;
+    uint32_t pos = 0;
     struct nrf_compress_implementation *compression = NULL;
     TARGET_STATIC uint8_t second_buf[256] __attribute__((aligned(4)));
-//    TARGET_STATIC uint8_t second_buf[4] __attribute__((aligned(4)));
 uint16_t second_buf_size = 0;
+    uint16_t write_alignment;
 uint32_t my_write_pos = 0;
 
-            hdr = boot_img_hdr(state, BOOT_SECONDARY_SLOT);
+    hdr = boot_img_hdr(state, BOOT_SECONDARY_SLOT);
 
 BOOT_LOG_ERR("hdr size: %d, protected tlv size: %d, img size: %d", hdr->ih_hdr_size, hdr->ih_protect_tlv_size, hdr->ih_img_size);
 
-/* Setup decompression system */
-                        compression = nrf_compress_implementation_find(NRF_COMPRESS_TYPE_LZMA);
+    /* Setup decompression system */
+    compression = nrf_compress_implementation_find(NRF_COMPRESS_TYPE_LZMA);
 BOOT_LOG_ERR("find... got %p", compression);
 
-                        if (compression == NULL || compression->init == NULL || compression->deinit == NULL || compression->decompress_bytes_needed == NULL || compression->decompress == NULL) {
-                            /* Compression library missing or missing required function pointer */
-                            return 4;
-                        }
+    if (compression == NULL || compression->init == NULL || compression->deinit == NULL || compression->decompress_bytes_needed == NULL || compression->decompress == NULL) {
+        /* Compression library missing or missing required function pointer */
+return 4;
+    }
 
-                        rc = compression->init(NULL);
+    rc = compression->init(NULL);
 
-                        if (rc) {
-                            return 4;
-                        }
+    if (rc) {
+return 4;
+    }
+
+    write_alignment = flash_area_align(fap_dst);
 
     /* Copy image header */
     while (pos < hdr->ih_hdr_size) {
@@ -1519,7 +1521,6 @@ BOOT_LOG_ERR("find... got %p", compression);
             copy_size = BUF_SZ;
         }
 
-//Read in
 BOOT_LOG_ERR("read from 0x%x for %d", (off_src + pos), copy_size);
         rc = flash_area_read(fap_src, off_src + pos, buf, copy_size);
 LOG_HEXDUMP_ERR(buf, copy_size, "read");
@@ -1528,7 +1529,7 @@ LOG_HEXDUMP_ERR(buf, copy_size, "read");
             return BOOT_EFLASH;
         }
 
-//Write
+        /* This assumes that the flash write size is compatible with the image header size */
 BOOT_LOG_ERR("write to 0x%x for %d", (off_dst + pos), copy_size);
         rc = flash_area_write(fap_dst, off_dst + pos, buf, copy_size);
 
@@ -1551,11 +1552,6 @@ bool last_packet = false;
             copy_size = BUF_SZ;
         }
 
-if ((pos + copy_size) >= hdr->ih_img_size) {
-last_packet = true;
-}
-
-//Read in
 BOOT_LOG_ERR("read from 0x%x for %d", (off_src + hdr->ih_hdr_size + pos), copy_size);
         rc = flash_area_read(fap_src, off_src + hdr->ih_hdr_size + pos, buf, copy_size);
 
@@ -1563,43 +1559,53 @@ BOOT_LOG_ERR("read from 0x%x for %d", (off_src + hdr->ih_hdr_size + pos), copy_s
             return BOOT_EFLASH;
         }
 
-//pass to decompression
+        /* Decompress data in chunks, writing it back with a larger write offset of the primary slot than read size of the secondary slot */
         while (tmp_off < copy_size) {
+            uint32_t offset = 0;
+            uint8_t *output = NULL;
+            uint32_t output_size = 0;
 uint32_t chunk_size;
-            rc = compression->decompress_bytes_needed(NULL);
 
-            if (rc <= 0) {
-//oh
+//TODO: make this function unsigned
+            chunk_size = compression->decompress_bytes_needed(NULL);
+
+//            if (rc <= 0) {
+//return -4;
+//            }
+
+            if (chunk_size > (copy_size - tmp_off)) {
+                chunk_size = (copy_size - tmp_off);
             }
 
-            if (rc > (copy_size - tmp_off)) {
-                rc = (copy_size - tmp_off);
-            }
-
-chunk_size = rc;
-BOOT_LOG_ERR("bytes needed: %d", rc);
-
-uint32_t offset = 0;
-uint8_t *output = NULL;
-uint32_t output_size = 0;
+BOOT_LOG_ERR("bytes needed: %d", chunk_size);
 
 //last packet should be set here
 
-            rc = compression->decompress(NULL, &buf[tmp_off], rc, last_packet, &offset, &output, &output_size);
+BOOT_LOG_ERR("LAST? pos: %d, tmp_off: %d, chunk %d, compare: %d, img_size: %d", pos, tmp_off, chunk_size, (pos + tmp_off + chunk_size), hdr->ih_img_size);
+            if ((pos + tmp_off + chunk_size) >= hdr->ih_img_size) {
+                last_packet = true;
+            }
+
+            rc = compression->decompress(NULL, &buf[tmp_off], chunk_size, last_packet, &offset, &output, &output_size);
 
 BOOT_LOG_ERR("rc = %d, dat in = %02x %02x, offset = %d, output size = %d, buffer = %p, last = %d", rc, buf[tmp_off], buf[tmp_off + 1], tmp_off, output_size, output, last_packet);
 
-if (rc != 0) {
+            if (rc) {
 return rc;
-}
-if (last_packet == true && (my_write_pos + output_size) == 0) {
+            }
+
+//TODO: should only be checked in the dry run
+            if (last_packet == true && (my_write_pos + output_size) == 0) {
+                /* Last packet and we still have no output, this is a faulty update */
 return -3;
-}
+            }
 
             if (offset == 0) {
+//TODO: if this happens over and over, error, though only check in dry run
                 break;
             }
 
+            /* Copy data to secondary buffer for writing out */
             while (output_size > 0) {
                 uint32_t data_size = (sizeof(second_buf) - second_buf_size);
 
@@ -1614,11 +1620,11 @@ BOOT_LOG_ERR("data size = %d", data_size);
                 second_buf_size += data_size;
                 output_size -= data_size;
 
-//write data out here
+                /* Write data out from secondary buffer when it is full */
                 if (second_buf_size == sizeof(second_buf)) {
 BOOT_LOG_ERR("write to 0x%x", (off_dst + hdr->ih_hdr_size + my_write_pos));
 LOG_HEXDUMP_ERR(second_buf, sizeof(second_buf), "write");
-                    rc = flash_area_write(fap_dst, off_dst + hdr->ih_hdr_size + my_write_pos, second_buf, sizeof(second_buf));
+                    rc = flash_area_write(fap_dst, (off_dst + hdr->ih_hdr_size + my_write_pos), second_buf, sizeof(second_buf));
 
                     if (rc != 0) {
                         return BOOT_EFLASH;
@@ -1628,57 +1634,77 @@ LOG_HEXDUMP_ERR(second_buf, sizeof(second_buf), "write");
                     second_buf_size = 0;
                 }
             }
-tmp_off += chunk_size;
+
+            tmp_off += chunk_size;
         }
 
         pos += copy_size;
     }
 
     if (second_buf_size > 0) {
+        /* Write out rest of buffer */
+        uint32_t write_padding_size = second_buf_size % write_alignment;
+
+
+        /* Check if additional write padding should be applied to meet the minimum write size */
+        if (write_padding_size) {
+            memset(&second_buf[second_buf_size], 0xff, write_padding_size);
+            second_buf_size += write_padding_size;
+        }
+
 BOOT_LOG_ERR("write to 0x%x for %d", (off_dst + hdr->ih_hdr_size + my_write_pos), second_buf_size);
 LOG_HEXDUMP_ERR(second_buf, second_buf_size, "write");
-                    rc = flash_area_write(fap_dst, off_dst + hdr->ih_hdr_size + my_write_pos, second_buf, sizeof(second_buf));
+        rc = flash_area_write(fap_dst, (off_dst + hdr->ih_hdr_size + my_write_pos), second_buf, second_buf_size);
 
-                    if (rc != 0) {
-                        return BOOT_EFLASH;
-                    }
-my_write_pos += second_buf_size;
-second_buf_size = 0;
+        if (rc != 0) {
+            return BOOT_EFLASH;
+        }
+
+        my_write_pos += second_buf_size;
+        second_buf_size = 0;
     }
 
-
-/* Clean up decompression */
+    /* Clean up decompression system */
     rc = compression->deinit(NULL);
 
     if (rc) {
 //??
     }
 
+    /* Copy image trailer */
 BOOT_LOG_ERR("footer... 0x%x of 0x%x", pos, sz);
-//todo: copy footer
-pos = 0;
-uint32_t left = sz - hdr->ih_hdr_size - hdr->ih_img_size - 2;
+    pos = 0;
+//WHY IS THERE A 2 DISCREPENCY??
+uint32_t left = sz - hdr->ih_hdr_size - hdr->ih_img_size;// - 2;
+
     while (pos < left) {
         uint32_t copy_size = left - pos;
+        uint32_t write_padding_size;
 
         if (copy_size > BUF_SZ) {
             copy_size = BUF_SZ;
         }
 
-//Read in
+        /* Read position and write position offsets diverge */
 BOOT_LOG_ERR("read from 0x%x for %d", (off_src + hdr->ih_hdr_size + hdr->ih_img_size + pos), copy_size);
-        rc = flash_area_read(fap_src, off_src + hdr->ih_hdr_size + hdr->ih_img_size + pos, buf, copy_size);
+        rc = flash_area_read(fap_src, (off_src + hdr->ih_hdr_size + hdr->ih_img_size + pos), buf, copy_size);
 
-        if (rc != 0) {
+        if (rc) {
             return BOOT_EFLASH;
         }
 
-//Write
+        /* Check if additional write padding should be applied to meet the minimum write size */
+        write_padding_size = copy_size % write_alignment;
+
+        if (write_padding_size) {
+            memset(&buf[copy_size], 0xff, write_padding_size);
+        }
+
 BOOT_LOG_ERR("write to 0x%x for %d", (off_dst + hdr->ih_hdr_size + my_write_pos + pos), copy_size);
 LOG_HEXDUMP_ERR(buf, copy_size, "write");
-        rc = flash_area_write(fap_dst, off_dst + hdr->ih_hdr_size + my_write_pos + pos, buf, copy_size);
+        rc = flash_area_write(fap_dst, (off_dst + hdr->ih_hdr_size + my_write_pos + pos), buf, (copy_size + write_padding_size));
 
-        if (rc != 0) {
+        if (rc) {
             return BOOT_EFLASH;
         }
 
@@ -1870,7 +1896,6 @@ BOOT_LOG_ERR("find... got %p", compression);
                     }
 
 uint16_t tmp_off = 0;
-const uint16_t min_write_size = 256;
 
                     while (tmp_off < blk_sz) {
                         rc = compression->decompress_bytes_needed(NULL);

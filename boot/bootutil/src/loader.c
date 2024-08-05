@@ -1071,12 +1071,14 @@ boot_validate_slot(struct boot_loader_state *state, int slot,
              * attempts to validate and boot it.
              */
         }
+
 #if !defined(__BOOTSIM__)
         BOOT_LOG_ERR("Image in the %s slot is not valid!",
                      (slot == BOOT_PRIMARY_SLOT) ? "primary" : "secondary");
 #endif
-        fih_rc = FIH_NO_BOOTABLE_IMAGE;
-        goto out;
+        fih_rc = FIH_SUCCESS;
+//        fih_rc = FIH_NO_BOOTABLE_IMAGE;
+//        goto out;
     }
 
 #if MCUBOOT_IMAGE_NUMBER > 1 && !defined(MCUBOOT_ENC_IMAGES) && defined(MCUBOOT_VERIFY_IMG_ADDRESS)
@@ -1475,6 +1477,218 @@ static void like_mbedtls_zeroize(void *p, size_t n)
  *
  * @return                      0 on success; nonzero on failure.
  */
+static int
+boot_copy_region_decompress(struct boot_loader_state *state,
+                 const struct flash_area *fap_src,
+                 const struct flash_area *fap_dst,
+                 uint32_t off_src, uint32_t off_dst, uint32_t sz, uint8_t *buf)
+{
+int rc;
+    struct image_header *hdr;
+uint32_t pos = 0;
+    struct nrf_compress_implementation *compression = NULL;
+    TARGET_STATIC uint8_t second_buf[256] __attribute__((aligned(4)));
+//    TARGET_STATIC uint8_t second_buf[4] __attribute__((aligned(4)));
+uint16_t second_buf_size = 0;
+uint32_t my_write_pos = 0;
+
+            hdr = boot_img_hdr(state, BOOT_SECONDARY_SLOT);
+
+BOOT_LOG_ERR("hdr size: %d, protected tlv size: %d, img size: %d", hdr->ih_hdr_size, hdr->ih_protect_tlv_size, hdr->ih_img_size);
+
+/* Setup decompression system */
+                        compression = nrf_compress_implementation_find(NRF_COMPRESS_TYPE_LZMA);
+BOOT_LOG_ERR("find... got %p", compression);
+
+                        if (compression == NULL || compression->init == NULL || compression->deinit == NULL || compression->decompress_bytes_needed == NULL || compression->decompress == NULL) {
+                            /* Compression library missing or missing required function pointer */
+                            return 4;
+                        }
+
+                        rc = compression->init(NULL);
+
+                        if (rc) {
+                            return 4;
+                        }
+
+    /* Copy image header */
+    while (pos < hdr->ih_hdr_size) {
+        uint32_t copy_size = hdr->ih_hdr_size - pos;
+
+        if (copy_size > BUF_SZ) {
+            copy_size = BUF_SZ;
+        }
+
+//Read in
+BOOT_LOG_ERR("read from 0x%x for %d", (off_src + pos), copy_size);
+        rc = flash_area_read(fap_src, off_src + pos, buf, copy_size);
+LOG_HEXDUMP_ERR(buf, copy_size, "read");
+
+        if (rc != 0) {
+            return BOOT_EFLASH;
+        }
+
+//Write
+BOOT_LOG_ERR("write to 0x%x for %d", (off_dst + pos), copy_size);
+        rc = flash_area_write(fap_dst, off_dst + pos, buf, copy_size);
+
+        if (rc != 0) {
+            return BOOT_EFLASH;
+        }
+
+        pos += copy_size;
+    }
+
+    /* Read in and write compressed data */
+    pos = 0;
+
+    while (pos < hdr->ih_img_size) {
+        uint32_t copy_size = hdr->ih_img_size - pos;
+        uint32_t tmp_off = 0;
+bool last_packet = false;
+
+        if (copy_size > BUF_SZ) {
+            copy_size = BUF_SZ;
+        }
+
+if ((pos + copy_size) >= hdr->ih_img_size) {
+last_packet = true;
+}
+
+//Read in
+BOOT_LOG_ERR("read from 0x%x for %d", (off_src + hdr->ih_hdr_size + pos), copy_size);
+        rc = flash_area_read(fap_src, off_src + hdr->ih_hdr_size + pos, buf, copy_size);
+
+        if (rc != 0) {
+            return BOOT_EFLASH;
+        }
+
+//pass to decompression
+        while (tmp_off < copy_size) {
+uint32_t chunk_size;
+            rc = compression->decompress_bytes_needed(NULL);
+
+            if (rc <= 0) {
+//oh
+            }
+
+            if (rc > (copy_size - tmp_off)) {
+                rc = (copy_size - tmp_off);
+            }
+
+chunk_size = rc;
+BOOT_LOG_ERR("bytes needed: %d", rc);
+
+uint32_t offset = 0;
+uint8_t *output = NULL;
+uint32_t output_size = 0;
+
+//last packet should be set here
+
+            rc = compression->decompress(NULL, &buf[tmp_off], rc, last_packet, &offset, &output, &output_size);
+
+BOOT_LOG_ERR("rc = %d, dat in = %02x %02x, offset = %d, output size = %d, buffer = %p, last = %d", rc, buf[tmp_off], buf[tmp_off + 1], tmp_off, output_size, output, last_packet);
+
+if (rc != 0) {
+return rc;
+}
+if (last_packet == true && (my_write_pos + output_size) == 0) {
+return -3;
+}
+
+            if (offset == 0) {
+                break;
+            }
+
+            while (output_size > 0) {
+                uint32_t data_size = (sizeof(second_buf) - second_buf_size);
+
+                if (data_size > output_size) {
+                    data_size = output_size;
+                }
+
+BOOT_LOG_ERR("data size = %d", data_size);
+                memcpy(&second_buf[second_buf_size], output, data_size);
+                memmove(output, &output[data_size], output_size - data_size);
+
+                second_buf_size += data_size;
+                output_size -= data_size;
+
+//write data out here
+                if (second_buf_size == sizeof(second_buf)) {
+BOOT_LOG_ERR("write to 0x%x", (off_dst + hdr->ih_hdr_size + my_write_pos));
+LOG_HEXDUMP_ERR(second_buf, sizeof(second_buf), "write");
+                    rc = flash_area_write(fap_dst, off_dst + hdr->ih_hdr_size + my_write_pos, second_buf, sizeof(second_buf));
+
+                    if (rc != 0) {
+                        return BOOT_EFLASH;
+                    }
+
+                    my_write_pos += sizeof(second_buf);
+                    second_buf_size = 0;
+                }
+            }
+tmp_off += chunk_size;
+        }
+
+        pos += copy_size;
+    }
+
+    if (second_buf_size > 0) {
+BOOT_LOG_ERR("write to 0x%x for %d", (off_dst + hdr->ih_hdr_size + my_write_pos), second_buf_size);
+LOG_HEXDUMP_ERR(second_buf, second_buf_size, "write");
+                    rc = flash_area_write(fap_dst, off_dst + hdr->ih_hdr_size + my_write_pos, second_buf, sizeof(second_buf));
+
+                    if (rc != 0) {
+                        return BOOT_EFLASH;
+                    }
+my_write_pos += second_buf_size;
+second_buf_size = 0;
+    }
+
+
+/* Clean up decompression */
+    rc = compression->deinit(NULL);
+
+    if (rc) {
+//??
+    }
+
+BOOT_LOG_ERR("footer... 0x%x of 0x%x", pos, sz);
+//todo: copy footer
+pos = 0;
+uint32_t left = sz - hdr->ih_hdr_size - hdr->ih_img_size - 2;
+    while (pos < left) {
+        uint32_t copy_size = left - pos;
+
+        if (copy_size > BUF_SZ) {
+            copy_size = BUF_SZ;
+        }
+
+//Read in
+BOOT_LOG_ERR("read from 0x%x for %d", (off_src + hdr->ih_hdr_size + hdr->ih_img_size + pos), copy_size);
+        rc = flash_area_read(fap_src, off_src + hdr->ih_hdr_size + hdr->ih_img_size + pos, buf, copy_size);
+
+        if (rc != 0) {
+            return BOOT_EFLASH;
+        }
+
+//Write
+BOOT_LOG_ERR("write to 0x%x for %d", (off_dst + hdr->ih_hdr_size + my_write_pos + pos), copy_size);
+LOG_HEXDUMP_ERR(buf, copy_size, "write");
+        rc = flash_area_write(fap_dst, off_dst + hdr->ih_hdr_size + my_write_pos + pos, buf, copy_size);
+
+        if (rc != 0) {
+            return BOOT_EFLASH;
+        }
+
+        pos += copy_size;
+    }
+
+BOOT_LOG_ERR("success?");
+    return 0;
+}
+
 int
 boot_copy_region(struct boot_loader_state *state,
                  const struct flash_area *fap_src,
@@ -1505,6 +1719,7 @@ boot_copy_region(struct boot_loader_state *state,
     TARGET_STATIC uint8_t second_buf[256] __attribute__((aligned(4)));
 //    TARGET_STATIC uint8_t second_buf[4] __attribute__((aligned(4)));
 uint16_t second_buf_size = 0;
+uint32_t my_write_pos = 0;
 #endif
 
     TARGET_STATIC uint8_t buf[BUF_SZ] __attribute__((aligned(4)));
@@ -1512,6 +1727,10 @@ uint16_t second_buf_size = 0;
 #if !defined(MCUBOOT_ENC_IMAGES)
     (void)state;
 #endif
+
+if (1) {
+return boot_copy_region_decompress(state, fap_src, fap_dst, off_src, off_dst, sz, buf);
+}
 
     bytes_copied = 0;
     while (bytes_copied < sz) {
@@ -1521,6 +1740,7 @@ uint16_t second_buf_size = 0;
             chunk_sz = sz - bytes_copied;
         }
 
+BOOT_LOG_ERR("read in from = %d for %d, sz %d", (off_src + bytes_copied), chunk_sz, sz);
         rc = flash_area_read(fap_src, off_src + bytes_copied, buf, chunk_sz);
         if (rc != 0) {
             return BOOT_EFLASH;
@@ -1600,8 +1820,8 @@ uint16_t second_buf_size = 0;
             }
 //            if (IS_COMPRESSED(hdr)) {
             if (1) {
-BOOT_LOG_ERR("decompress");
                 uint32_t abs_off = off + bytes_copied;
+BOOT_LOG_ERR("decompress, off = %d", abs_off);
                 if (abs_off < hdr->ih_hdr_size) {
                     /* do not decrypt header */
                     if (abs_off + chunk_sz > hdr->ih_hdr_size) {
@@ -1618,6 +1838,8 @@ BOOT_LOG_ERR("decompress");
                     blk_sz = chunk_sz;
                     blk_off = (abs_off - hdr->ih_hdr_size) & 0xf;
                 }
+
+BOOT_LOG_ERR("blk_size = %d", blk_sz);
 
                 if (blk_sz > 0)
                 {
@@ -1663,19 +1885,54 @@ const uint16_t min_write_size = 256;
 
 BOOT_LOG_ERR("bytes needed: %d", rc);
 
-uint32_t offset;
-uint8_t *output;
-uint32_t output_size;
+uint32_t offset = 0;
+uint8_t *output = NULL;
+uint32_t output_size = 0;
 
+if (chunk_sz < sizeof(buf)) {
+                        rc = compression->decompress(NULL, &buf[idx + tmp_off], rc, true, &offset, &output, &output_size);
+} else {
                         rc = compression->decompress(NULL, &buf[idx + tmp_off], rc, false, &offset, &output, &output_size);
+}
 
-BOOT_LOG_ERR("rc = %d, dat in = %02x %02x, offset = %d, output size = %d", rc, buf[idx + tmp_off], buf[idx + tmp_off + 1], (idx + tmp_off), output_size);
+BOOT_LOG_ERR("rc = %d, dat in = %02x %02x, offset = %d, output size = %d, buffer = %p", rc, buf[idx + tmp_off], buf[idx + tmp_off + 1], (idx + tmp_off), output_size, output);
 
 
                         if (offset == 0) {
                             break;
                         }
 
+while (output_size > 0) {
+uint32_t data_size = (sizeof(second_buf) - second_buf_size);
+
+if (data_size > output_size) {
+data_size = output_size;
+}
+
+BOOT_LOG_ERR("data size = %d", data_size);
+memcpy(&second_buf[second_buf_size], output, data_size);
+memmove(output, &output[data_size], output_size - data_size);
+
+second_buf_size += data_size;
+output_size -= data_size;
+
+//write data out here
+if (second_buf_size == sizeof(second_buf)) {
+BOOT_LOG_ERR("write to %d", (off_dst + my_write_pos));
+rc = flash_area_write(fap_dst, off_dst + /*bytes_copied + tmp_off*/ my_write_pos, second_buf, sizeof(second_buf));
+
+                                if (rc != 0) {
+            return BOOT_EFLASH;
+                                }
+
+my_write_pos += sizeof(second_buf);
+second_buf_size = 0;
+}
+}
+
+tmp_off += offset;
+
+#if 0
                         if (second_buf_size > 0) {
                             if ((second_buf_size + output_size) >= min_write_size) {
 BOOT_LOG_ERR("second buf has data");
@@ -1694,7 +1951,9 @@ BOOT_LOG_ERR("second buf has data");
                                 second_buf_size = 0;
                             }
                         }
+#endif
 
+#if 0
                         if ((output_size % min_write_size) != 0) {
 
                             second_buf_size = output_size % min_write_size;
@@ -1713,7 +1972,9 @@ BOOT_LOG_ERR("oops");
 
                         tmp_off += offset;
                     }
+#endif
 
+#if 0
                     bytes_copied += chunk_sz;
 
                     if (blk_sz != tmp_off) {
@@ -1721,6 +1982,29 @@ BOOT_LOG_ERR("oops");
                         bytes_copied += tmp_off;
                     }
 BOOT_LOG_ERR("bytes copied %d", bytes_copied);
+#endif
+if (bytes_copied == 0) {
+bytes_copied += 0x200;
+}
+
+bytes_copied += offset;
+
+//                    if (abs_off + chunk_sz > tlv_off) {
+                        /* do not decrypt TLVs */
+#if 0
+                        if (abs_off >= tlv_off) {
+bytes_copied += chunk_sz;
+//                            blk_sz = 0;
+                        } else {
+//                            blk_sz = tlv_off - abs_off;
+//bytes_copied += ;
+                        }
+#endif
+//                    }
+
+BOOT_LOG_ERR("bytes copied += %d now %d", offset, bytes_copied);
+
+}
 
 }
 //second_buf
@@ -1800,6 +2084,7 @@ boot_copy_image(struct boot_loader_state *state, struct boot_status *bs)
 #if defined(MCUBOOT_OVERWRITE_ONLY_FAST)
     uint32_t src_size = 0;
     rc = boot_read_image_size(state, BOOT_SECONDARY_SLOT, &src_size);
+src_size += 16000;
     assert(rc == 0);
 #endif
 

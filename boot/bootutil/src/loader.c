@@ -882,7 +882,7 @@ out:
  * within the flash area we are in.
  */
 static bool
-boot_is_header_valid(const struct image_header *hdr, const struct flash_area *fap)
+boot_is_header_valid(const struct image_header *hdr, const struct flash_area *fap, struct boot_loader_state *state)
 {
     uint32_t size;
 
@@ -894,9 +894,39 @@ boot_is_header_valid(const struct image_header *hdr, const struct flash_area *fa
         return false;
     }
 
-    if (size >= flash_area_get_size(fap)) {
-        return false;
+#ifdef MCUBOOT_DECOMPRESS_IMAGES
+    if (MUST_DECOMPRESS(fap, BOOT_CURR_IMG(state), hdr)) {
+        /* Image is compressed in secondary slot, need to check if fits into the primary slot */
+        bool opened_flash_area = false;
+        int primary_fa_id;
+        int rc;
+        int size_check;
+
+        if (&BOOT_IMG_AREA(state, BOOT_PRIMARY_SLOT) == NULL) {
+            opened_flash_area = true;
+        }
+
+        primary_fa_id = flash_area_id_from_multi_image_slot(BOOT_CURR_IMG(state), BOOT_PRIMARY_SLOT);
+        rc = flash_area_open(fa_id, &BOOT_IMG_AREA(state, BOOT_PRIMARY_SLOT));
+        assert(rc == 0);
+
+        size_check = flash_area_get_size(&BOOT_IMG_AREA(state, BOOT_PRIMARY_SLOT);
+
+        if (opened_flash_area) {
+            (void)flash_area_close(&BOOT_IMG_AREA(state, BOOT_PRIMARY_SLOT));
+        }
+
+        if (size >= size_check) {
+            return false;
+        }
+    } else {
+#endif
+        if (size >= flash_area_get_size(fap)) {
+            return false;
+        }
+#ifdef MCUBOOT_DECOMPRESS_IMAGES
     }
+#endif
 
     return true;
 }
@@ -1064,7 +1094,7 @@ boot_validate_slot(struct boot_loader_state *state, int slot,
     {
         FIH_CALL(boot_image_check, fih_rc, state, hdr, fap, bs);
     }
-    if (!boot_is_header_valid(hdr, fap) || FIH_NOT_EQ(fih_rc, FIH_SUCCESS)) {
+    if (!boot_is_header_valid(hdr, fap, state) || FIH_NOT_EQ(fih_rc, FIH_SUCCESS)) {
         if ((slot != BOOT_PRIMARY_SLOT) || ARE_SLOTS_EQUIVALENT()) {
             flash_area_erase(fap, 0, flash_area_get_size(fap));
             /* Image is invalid, erase it to prevent further unnecessary
@@ -3263,7 +3293,7 @@ boot_get_slot_usage(struct boot_loader_state *state)
         for (slot = 0; slot < BOOT_NUM_SLOTS; slot++) {
             hdr = boot_img_hdr(state, slot);
 
-            if (boot_is_header_valid(hdr, BOOT_IMG_AREA(state, slot))) {
+            if (boot_is_header_valid(hdr, BOOT_IMG_AREA(state, slot), state)) {
                 state->slot_usage[BOOT_CURR_IMG(state)].slot_available[slot] = true;
                 BOOT_LOG_IMAGE_INFO(slot, hdr);
             } else {

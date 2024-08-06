@@ -40,6 +40,13 @@
 
 #include "mcuboot_config/mcuboot_config.h"
 
+#include <nrf_compress/implementation.h>
+
+#include "bootutil/bootutil_log.h"
+
+BOOT_LOG_MODULE_DECLARE(mcuboot);
+
+
 #ifdef MCUBOOT_ENC_IMAGES
 #include "bootutil/enc_key.h"
 #endif
@@ -65,7 +72,7 @@ static int
 bootutil_img_hash(struct enc_key_data *enc_state, int image_index,
                   struct image_header *hdr, const struct flash_area *fap,
                   uint8_t *tmp_buf, uint32_t tmp_buf_sz, uint8_t *hash_result,
-                  uint8_t *seed, int seed_len, bool compressed)
+                  uint8_t *seed, int seed_len, bool decompress)
 {
     bootutil_sha_context sha_ctx;
     uint32_t blk_sz;
@@ -75,6 +82,8 @@ bootutil_img_hash(struct enc_key_data *enc_state, int image_index,
     int rc;
     uint32_t blk_off;
     uint32_t tlv_off;
+
+    struct nrf_compress_implementation *compression = NULL;
 
 #if (BOOT_IMAGE_NUMBER == 1) || !defined(MCUBOOT_ENC_IMAGES) || \
     defined(MCUBOOT_RAM_LOAD)
@@ -111,6 +120,7 @@ bootutil_img_hash(struct enc_key_data *enc_state, int image_index,
 
     /* Hash is computed over image header and image itself. */
     size = hdr_size = hdr->ih_hdr_size;
+//size needs adapting
     size += hdr->ih_img_size;
     tlv_off = size;
 
@@ -119,6 +129,26 @@ bootutil_img_hash(struct enc_key_data *enc_state, int image_index,
 
 //if (compressed) {
 //}
+
+#if defined(MCUBOOT_DECOMPRESS_IMAGES)
+//    if (MUST_DECOMPRESS(fap, image_index, hdr)) {
+    if (1) {
+        /* Setup decompression system */
+        compression = nrf_compress_implementation_find(NRF_COMPRESS_TYPE_LZMA);
+BOOT_LOG_ERR("find... got %p", compression);
+
+        if (compression == NULL || compression->init == NULL || compression->deinit == NULL || compression->decompress_bytes_needed == NULL || compression->decompress == NULL) {
+            /* Compression library missing or missing required function pointer */
+return 4;
+        }
+
+        rc = compression->init(NULL);
+
+        if (rc) {
+return 4;
+        }
+    }
+#endif
 
 #ifdef MCUBOOT_RAM_LOAD
     bootutil_sha_update(&sha_ctx,
@@ -130,7 +160,7 @@ bootutil_img_hash(struct enc_key_data *enc_state, int image_index,
         if (blk_sz > tmp_buf_sz) {
             blk_sz = tmp_buf_sz;
         }
-#ifdef MCUBOOT_ENC_IMAGES
+#if defined(MCUBOOT_ENC_IMAGES) || defined(MCUBOOT_DECOMPRESS_IMAGES)
         /* The only data that is encrypted in an image is the payload;
          * both header and TLVs (when protected) are not.
          */
@@ -158,11 +188,88 @@ bootutil_img_hash(struct enc_key_data *enc_state, int image_index,
             }
         }
 #endif
-        bootutil_sha_update(&sha_ctx, tmp_buf, blk_sz);
+#ifdef MCUBOOT_DECOMPRESS_IMAGES
+//        if (MUST_DECOMPRESS(fap, image_index, hdr)) {
+if (1) {
+            /* Only payload is encrypted (area between header and TLVs) */
+            if (off >= hdr_size && off < tlv_off) {
+                blk_off = (off - hdr_size) & 0xf;
+
+BOOT_LOG_ERR("gives 0x%x, 0x%x, 0x%x in %p", (off - hdr_size), blk_sz, blk_off, tmp_buf);
+
+                /* Read in and write compressed data */
+                uint32_t tmp_off = 0;
+                bool last_packet = false;
+
+                /* Decompress data in chunks, writing it back with a larger write offset of the primary slot than read size of the secondar*/
+                while (tmp_off < blk_sz) {
+                    uint32_t offset = 0;
+                    uint8_t *output = NULL;
+                    uint32_t output_size = 0;
+                    uint32_t chunk_size;
+
+//TODO: make this function unsigned
+                    chunk_size = compression->decompress_bytes_needed(NULL);
+
+//            if (rc <= 0) {
+//return -4;
+//            }
+
+                    if (chunk_size > (blk_sz - tmp_off)) {
+                        chunk_size = (blk_sz - tmp_off);
+                    }
+
+BOOT_LOG_ERR("bytes needed: %d", chunk_size);
+
+                    if ((off + blk_off + tmp_off + chunk_size) >= size) {
+                        last_packet = true;
+                    }
+
+BOOT_LOG_ERR("check %d vs %d", (off + blk_off + tmp_off + chunk_size), size);
+
+                    rc = compression->decompress(NULL, &tmp_buf[blk_off + tmp_off], chunk_size, last_packet, &offset, &output, &output_size);
+
+BOOT_LOG_ERR("rc = %d, dat in = %02x %02x, offset = %d, output size = %d, buffer = %p, last = %d", rc, tmp_buf[blk_off + tmp_off], tmp_buf[blk_off + tmp_off + 1], tmp_off, output_size, output, last_packet);
+
+                    if (rc) {
+return rc;
+                    }
+
+//TODO: should only be checked in the dry run
+#if 0
+                    if (last_packet == true && (my_write_pos + output_size) == 0) {
+                         /* Last packet and we still have no output, this is a faulty update */
+return -3;
+                    }
+
+                    if (offset == 0) {
+//TODO: if this happens over and over, error, though only check in dry run
+                        break;
+                    }
+
+                    if (output_size > 0) {
+LOG_HEXDUMP_ERR(output, output_size, "hash");
+                        bootutil_sha_update(&sha_ctx, output, output_size);
+                    }
+
+                    tmp_off += chunk_size;
+                }
+#endif
+} else {
+BOOT_LOG_ERR("outside 0x%x, 0x%x", off, blk_sz);
+            }
+        } else {
+#endif
+            bootutil_sha_update(&sha_ctx, tmp_buf, blk_sz);
+#ifdef MCUBOOT_DECOMPRESS_IMAGES
+        }
+#endif
     }
 #endif /* MCUBOOT_RAM_LOAD */
+
     bootutil_sha_finish(&sha_ctx, hash_result);
     bootutil_sha_drop(&sha_ctx);
+LOG_HEXDUMP_ERR(hash_result, 32, "result");
 
     return 0;
 }
@@ -415,8 +522,63 @@ bootutil_img_validate(struct enc_key_data *enc_state, int image_index,
     FIH_DECLARE(security_counter_valid, FIH_FAILURE);
 #endif
 
+#ifdef MCUBOOT_DECOMPRESS_IMAGES
+    /* If the image is compressed, the integrity of the image must also be validated */
+    if (MUST_DECOMPRESS(fap, image_index, hdr)) {
+        rc = bootutil_img_hash(enc_state, image_index, hdr, fap, tmp_buf,
+                tmp_buf_sz, hash, seed, seed_len, false);
+        if (rc) {
+            goto out;
+        }
+
+        rc = bootutil_tlv_iter_begin(&it, hdr, fap, IMAGE_TLV_RAW_SLOT_SHA256, false);
+        if (rc) {
+            goto out;
+        }
+
+        if (it.tlv_end > bootutil_max_image_size(fap)) {
+            rc = -1;
+            goto out;
+        }
+
+        while (true) {
+            rc = bootutil_tlv_iter_next(&it, &off, &len, &type);
+            if (rc < 0) {
+                goto out;
+            } else if (rc > 0) {
+                break;
+            }
+
+            if (type == IMAGE_TLV_RAW_SLOT_SHA256) {
+                /* Verify the image hash. This must always be present. */
+                if (len != sizeof(hash)) {
+                    rc = -1;
+                    goto out;
+                }
+                rc = LOAD_IMAGE_DATA(hdr, fap, off, buf, sizeof(hash));
+                if (rc) {
+                    goto out;
+                }
+
+                FIH_CALL(boot_fih_memequal, fih_rc, hash, buf, sizeof(hash));
+                if (FIH_NOT_EQ(fih_rc, FIH_SUCCESS)) {
+                    FIH_SET(fih_rc, FIH_FAILURE);
+                    goto out;
+                }
+
+                image_hash_valid = 1;
+            }
+        }
+
+        rc = !image_hash_valid;
+        if (rc) {
+            goto out;
+        }
+    }
+#endif
+
     rc = bootutil_img_hash(enc_state, image_index, hdr, fap, tmp_buf,
-            tmp_buf_sz, hash, seed, seed_len, false);
+            tmp_buf_sz, hash, seed, seed_len, true);
     if (rc) {
         goto out;
     }
@@ -469,7 +631,7 @@ bootutil_img_validate(struct enc_key_data *enc_state, int image_index,
 #endif
 
         if (type == EXPECTED_HASH_TLV) {
-#if 1
+#ifdef MCUBOOT_DECOMPRESS_IMAGES
             if (!MUST_DECOMPRESS(fap, image_index, hdr)) {
 #endif
                 /* Verify the image hash. This must always be present. */
@@ -489,7 +651,7 @@ bootutil_img_validate(struct enc_key_data *enc_state, int image_index,
                 }
 
                 image_hash_valid = 1;
-#if 1
+#ifdef MCUBOOT_DECOMPRESS_IMAGES
             }
 #endif
 #ifdef EXPECTED_KEY_TLV
@@ -593,64 +755,6 @@ bootutil_img_validate(struct enc_key_data *enc_state, int image_index,
         goto out;
     }
 #endif
-
-#if 1
-    /* If the image is compressed, the integrity of the image must also be validated */
-    if (MUST_DECOMPRESS(fap, image_index, hdr)) {
-        rc = bootutil_img_hash(enc_state, image_index, hdr, fap, tmp_buf,
-                tmp_buf_sz, hash, seed, seed_len, true);
-        if (rc) {
-            goto out;
-        }
-
-        rc = bootutil_tlv_iter_begin(&it, hdr, fap, IMAGE_TLV_ANY, false);
-        if (rc) {
-            goto out;
-        }
-
-        if (it.tlv_end > bootutil_max_image_size(fap)) {
-            rc = -1;
-            goto out;
-        }
-
-        while (true) {
-            rc = bootutil_tlv_iter_next(&it, &off, &len, &type);
-            if (rc < 0) {
-                goto out;
-            } else if (rc > 0) {
-                break;
-            }
-
-            if (type == EXPECTED_todo) {
-                if (MUST_DECOMPRESS(fap, image_index, hdr)) {
-                    /* Verify the image hash. This must always be present. */
-                    if (len != sizeof(hash)) {
-                        rc = -1;
-                        goto out;
-                    }
-                    rc = LOAD_IMAGE_DATA(hdr, fap, off, buf, sizeof(hash));
-                    if (rc) {
-                        goto out;
-                    }
-
-                    FIH_CALL(boot_fih_memequal, fih_rc, hash, buf, sizeof(hash));
-                    if (FIH_NOT_EQ(fih_rc, FIH_SUCCESS)) {
-                        FIH_SET(fih_rc, FIH_FAILURE);
-                        goto out;
-                    }
-
-                    image_hash_valid = 1;
-                }
-            }
-        }
-
-        rc = !image_hash_valid;
-        if (rc) {
-            goto out;
-        }
-    }
-#endif
-
 
 out:
     if (rc) {

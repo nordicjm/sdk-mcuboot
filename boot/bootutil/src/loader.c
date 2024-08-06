@@ -1766,18 +1766,7 @@ boot_copy_region(struct boot_loader_state *state,
     uint8_t image_index;
 #endif
 #ifdef MCUBOOT_DECOMPRESS_IMAGES
-    uint32_t off;
-    uint32_t tlv_off;
-    size_t blk_off;
     struct image_header *hdr;
-    uint16_t idx;
-    uint32_t blk_sz;
-    uint8_t image_index;
-    struct nrf_compress_implementation *compression = NULL;
-    TARGET_STATIC uint8_t second_buf[256] __attribute__((aligned(4)));
-//    TARGET_STATIC uint8_t second_buf[4] __attribute__((aligned(4)));
-uint16_t second_buf_size = 0;
-uint32_t my_write_pos = 0;
 #endif
 
     TARGET_STATIC uint8_t buf[BUF_SZ] __attribute__((aligned(4)));
@@ -1787,7 +1776,8 @@ uint32_t my_write_pos = 0;
 #endif
 
 #ifdef MCUBOOT_DECOMPRESS_IMAGES
-if (1) {
+            hdr = boot_img_hdr(state, BOOT_SECONDARY_SLOT);
+    if (MUST_DECOMPRESS(fap_src, BOOT_CURR_IMG(state), hdr)) {
 return boot_copy_region_decompress(state, fap_src, fap_dst, off_src, off_dst, sz, buf);
 }
 #endif
@@ -1865,241 +1855,15 @@ BOOT_LOG_ERR("read in from = %d for %d, sz %d", (off_src + bytes_copied), chunk_
         }
 #endif
 
-//todo
-#ifdef MCUBOOT_DECOMPRESS_IMAGES
-        image_index = BOOT_CURR_IMG(state);
-        if ((flash_area_get_id(fap_src) == FLASH_AREA_IMAGE_SECONDARY(image_index) ||
-             flash_area_get_id(fap_dst) == FLASH_AREA_IMAGE_SECONDARY(image_index)) &&
-            !(flash_area_get_id(fap_src) == FLASH_AREA_IMAGE_SECONDARY(image_index) &&
-              flash_area_get_id(fap_dst) == FLASH_AREA_IMAGE_SECONDARY(image_index))) {
-            /* assume the secondary slot as src, needs decryption */
-            hdr = boot_img_hdr(state, BOOT_SECONDARY_SLOT);
-            off = off_dst;
-            if (flash_area_get_id(fap_dst) == FLASH_AREA_IMAGE_SECONDARY(image_index)) {
-                hdr = boot_img_hdr(state, BOOT_PRIMARY_SLOT);
-            }
-//            if (IS_COMPRESSED(hdr)) {
-            if (1) {
-                uint32_t abs_off = off + bytes_copied;
-BOOT_LOG_ERR("decompress, off = %d", abs_off);
-                if (abs_off < hdr->ih_hdr_size) {
-                    /* do not decrypt header */
-                    if (abs_off + chunk_sz > hdr->ih_hdr_size) {
-                        /* The lower part of the chunk contains header data */
-                        blk_off = 0;
-                        blk_sz = chunk_sz - (hdr->ih_hdr_size - abs_off);
-                        idx = hdr->ih_hdr_size  - abs_off;
-                    } else {
-                        /* The chunk contains exclusively header data */
-                        blk_sz = 0; /* nothing to decrypt */
-                    }
-                } else {
-                    idx = 0;
-                    blk_sz = chunk_sz;
-                    blk_off = (abs_off - hdr->ih_hdr_size) & 0xf;
-                }
-
-BOOT_LOG_ERR("blk_size = %d", blk_sz);
-
-                if (blk_sz > 0)
-                {
-                    tlv_off = BOOT_TLV_OFF(hdr);
-                    if (abs_off + chunk_sz > tlv_off) {
-                        /* do not decrypt TLVs */
-                        if (abs_off >= tlv_off) {
-                            blk_sz = 0;
-                        } else {
-                            blk_sz = tlv_off - abs_off;
-                        }
-                    }
-
-                    if (compression == NULL) {
-                        compression = nrf_compress_implementation_find(NRF_COMPRESS_TYPE_LZMA);
-BOOT_LOG_ERR("find... got %p", compression);
-
-                        if (compression == NULL || compression->init == NULL || compression->deinit == NULL || compression->decompress_bytes_needed == NULL || compression->decompress == NULL) {
-                            /* Compression library missing or missing required function pointer */
-                            return 4;
-                        }
-
-                        rc = compression->init(NULL);
-
-                        if (rc) {
-                            return 4;
-                        }
-                    }
-
-uint16_t tmp_off = 0;
-
-                    while (tmp_off < blk_sz) {
-                        rc = compression->decompress_bytes_needed(NULL);
-
-                        if (rc <= 0) {
-//oh
-                        }
-
-                        if (rc > (blk_sz - tmp_off)) {
-                            rc = (blk_sz - tmp_off);
-                        }
-
-BOOT_LOG_ERR("bytes needed: %d", rc);
-
-uint32_t offset = 0;
-uint8_t *output = NULL;
-uint32_t output_size = 0;
-
-if (chunk_sz < sizeof(buf)) {
-                        rc = compression->decompress(NULL, &buf[idx + tmp_off], rc, true, &offset, &output, &output_size);
-} else {
-                        rc = compression->decompress(NULL, &buf[idx + tmp_off], rc, false, &offset, &output, &output_size);
-}
-
-BOOT_LOG_ERR("rc = %d, dat in = %02x %02x, offset = %d, output size = %d, buffer = %p", rc, buf[idx + tmp_off], buf[idx + tmp_off + 1], (idx + tmp_off), output_size, output);
-
-
-                        if (offset == 0) {
-                            break;
-                        }
-
-while (output_size > 0) {
-uint32_t data_size = (sizeof(second_buf) - second_buf_size);
-
-if (data_size > output_size) {
-data_size = output_size;
-}
-
-BOOT_LOG_ERR("data size = %d", data_size);
-memcpy(&second_buf[second_buf_size], output, data_size);
-memmove(output, &output[data_size], output_size - data_size);
-
-second_buf_size += data_size;
-output_size -= data_size;
-
-//write data out here
-if (second_buf_size == sizeof(second_buf)) {
-BOOT_LOG_ERR("write to %d", (off_dst + my_write_pos));
-rc = flash_area_write(fap_dst, off_dst + /*bytes_copied + tmp_off*/ my_write_pos, second_buf, sizeof(second_buf));
-
-                                if (rc != 0) {
-            return BOOT_EFLASH;
-                                }
-
-my_write_pos += sizeof(second_buf);
-second_buf_size = 0;
-}
-}
-
-tmp_off += offset;
-
-#if 0
-                        if (second_buf_size > 0) {
-                            if ((second_buf_size + output_size) >= min_write_size) {
-BOOT_LOG_ERR("second buf has data");
-                                memcpy(&second_buf[second_buf_size], output, (min_write_size - second_buf_size));
-
-                                rc = flash_area_write(fap_dst, off_dst + bytes_copied + tmp_off, second_buf, min_write_size);
-
-                                if (rc != 0) {
-            return BOOT_EFLASH;
-                                }
-
-                                tmp_off += min_write_size;
-
-                                memmove(output, &output[(min_write_size - second_buf_size)], output_size - (min_write_size - second_buf_size));
-                                output_size -= (min_write_size - second_buf_size);
-                                second_buf_size = 0;
-                            }
-                        }
-#endif
-
-#if 0
-                        if ((output_size % min_write_size) != 0) {
-
-                            second_buf_size = output_size % min_write_size;
-                            memcpy(second_buf, &output[output_size - 1 - second_buf_size], second_buf_size);
-                            output_size -= second_buf_size;
-BOOT_LOG_ERR("add second buf of %d", second_buf_size);
-                        }
-
-                        rc = flash_area_write(fap_dst, off_dst + bytes_copied /*+ tmp_off*/, output, output_size);
-BOOT_LOG_ERR("do write to %d of %d", (off_dst + bytes_copied), output_size);
-
-                        if (rc != 0) {
-BOOT_LOG_ERR("oops");
-                            return BOOT_EFLASH;
-                        }
-
-                        tmp_off += offset;
-                    }
-#endif
-
-#if 0
-                    bytes_copied += chunk_sz;
-
-                    if (blk_sz != tmp_off) {
-                        bytes_copied -= blk_sz;
-                        bytes_copied += tmp_off;
-                    }
-BOOT_LOG_ERR("bytes copied %d", bytes_copied);
-#endif
-if (bytes_copied == 0) {
-bytes_copied += 0x200;
-}
-
-bytes_copied += offset;
-
-//                    if (abs_off + chunk_sz > tlv_off) {
-                        /* do not decrypt TLVs */
-#if 0
-                        if (abs_off >= tlv_off) {
-bytes_copied += chunk_sz;
-//                            blk_sz = 0;
-                        } else {
-//                            blk_sz = tlv_off - abs_off;
-//bytes_copied += ;
-                        }
-#endif
-//                    }
-
-BOOT_LOG_ERR("bytes copied += %d now %d", offset, bytes_copied);
-
-}
-
-}
-//second_buf
-/*
-boot_encrypt(struct enc_key_data *enc_state, int image_index,
-        const struct flash_area *fap, uint32_t off, uint32_t sz,
-        uint32_t blk_off, uint8_t *buf)
-*/
-//todo
-//                    boot_encrypt(BOOT_CURR_ENC(state), image_index, fap_src,
-//                            (abs_off + idx) - hdr->ih_hdr_size, blk_sz,
-//                            blk_off, &buf[idx]);
-            }
-        }
-#else
         rc = flash_area_write(fap_dst, off_dst + bytes_copied, buf, chunk_sz);
         if (rc != 0) {
             return BOOT_EFLASH;
         }
 
         bytes_copied += chunk_sz;
-#endif
 
         MCUBOOT_WATCHDOG_FEED();
     }
-
-#ifdef MCUBOOT_DECOMPRESS_IMAGES
-    if (compression != NULL) {
-        /* Clean up */
-        rc = compression->deinit(NULL);
-
-        if (rc) {
-//??
-        }
-    }
-#endif
 
     return 0;
 }

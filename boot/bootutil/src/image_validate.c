@@ -65,7 +65,7 @@ static int
 bootutil_img_hash(struct enc_key_data *enc_state, int image_index,
                   struct image_header *hdr, const struct flash_area *fap,
                   uint8_t *tmp_buf, uint32_t tmp_buf_sz, uint8_t *hash_result,
-                  uint8_t *seed, int seed_len)
+                  uint8_t *seed, int seed_len, bool compressed)
 {
     bootutil_sha_context sha_ctx;
     uint32_t blk_sz;
@@ -116,6 +116,9 @@ bootutil_img_hash(struct enc_key_data *enc_state, int image_index,
 
     /* If protected TLVs are present they are also hashed. */
     size += hdr->ih_protect_tlv_size;
+
+//if (compressed) {
+//}
 
 #ifdef MCUBOOT_RAM_LOAD
     bootutil_sha_update(&sha_ctx,
@@ -413,7 +416,7 @@ bootutil_img_validate(struct enc_key_data *enc_state, int image_index,
 #endif
 
     rc = bootutil_img_hash(enc_state, image_index, hdr, fap, tmp_buf,
-            tmp_buf_sz, hash, seed, seed_len);
+            tmp_buf_sz, hash, seed, seed_len, false);
     if (rc) {
         goto out;
     }
@@ -466,23 +469,29 @@ bootutil_img_validate(struct enc_key_data *enc_state, int image_index,
 #endif
 
         if (type == EXPECTED_HASH_TLV) {
-            /* Verify the image hash. This must always be present. */
-            if (len != sizeof(hash)) {
-                rc = -1;
-                goto out;
-            }
-            rc = LOAD_IMAGE_DATA(hdr, fap, off, buf, sizeof(hash));
-            if (rc) {
-                goto out;
-            }
+#if 1
+            if (!MUST_DECOMPRESS(fap, image_index, hdr)) {
+#endif
+                /* Verify the image hash. This must always be present. */
+                if (len != sizeof(hash)) {
+                    rc = -1;
+                    goto out;
+                }
+                rc = LOAD_IMAGE_DATA(hdr, fap, off, buf, sizeof(hash));
+                if (rc) {
+                    goto out;
+                }
 
-            FIH_CALL(boot_fih_memequal, fih_rc, hash, buf, sizeof(hash));
-            if (FIH_NOT_EQ(fih_rc, FIH_SUCCESS)) {
-                FIH_SET(fih_rc, FIH_FAILURE);
-                goto out;
-            }
+                FIH_CALL(boot_fih_memequal, fih_rc, hash, buf, sizeof(hash));
+                if (FIH_NOT_EQ(fih_rc, FIH_SUCCESS)) {
+                    FIH_SET(fih_rc, FIH_FAILURE);
+                    goto out;
+                }
 
-            image_hash_valid = 1;
+                image_hash_valid = 1;
+#if 1
+            }
+#endif
 #ifdef EXPECTED_KEY_TLV
         } else if (type == EXPECTED_KEY_TLV) {
             /*
@@ -566,6 +575,8 @@ bootutil_img_validate(struct enc_key_data *enc_state, int image_index,
             /* The image's security counter has been successfully verified. */
             security_counter_valid = fih_rc;
 #endif /* MCUBOOT_HW_ROLLBACK_PROT */
+#if 0
+#endif
         }
     }
 
@@ -582,6 +593,64 @@ bootutil_img_validate(struct enc_key_data *enc_state, int image_index,
         goto out;
     }
 #endif
+
+#if 1
+    /* If the image is compressed, the integrity of the image must also be validated */
+    if (MUST_DECOMPRESS(fap, image_index, hdr)) {
+        rc = bootutil_img_hash(enc_state, image_index, hdr, fap, tmp_buf,
+                tmp_buf_sz, hash, seed, seed_len, true);
+        if (rc) {
+            goto out;
+        }
+
+        rc = bootutil_tlv_iter_begin(&it, hdr, fap, IMAGE_TLV_ANY, false);
+        if (rc) {
+            goto out;
+        }
+
+        if (it.tlv_end > bootutil_max_image_size(fap)) {
+            rc = -1;
+            goto out;
+        }
+
+        while (true) {
+            rc = bootutil_tlv_iter_next(&it, &off, &len, &type);
+            if (rc < 0) {
+                goto out;
+            } else if (rc > 0) {
+                break;
+            }
+
+            if (type == EXPECTED_todo) {
+                if (MUST_DECOMPRESS(fap, image_index, hdr)) {
+                    /* Verify the image hash. This must always be present. */
+                    if (len != sizeof(hash)) {
+                        rc = -1;
+                        goto out;
+                    }
+                    rc = LOAD_IMAGE_DATA(hdr, fap, off, buf, sizeof(hash));
+                    if (rc) {
+                        goto out;
+                    }
+
+                    FIH_CALL(boot_fih_memequal, fih_rc, hash, buf, sizeof(hash));
+                    if (FIH_NOT_EQ(fih_rc, FIH_SUCCESS)) {
+                        FIH_SET(fih_rc, FIH_FAILURE);
+                        goto out;
+                    }
+
+                    image_hash_valid = 1;
+                }
+            }
+        }
+
+        rc = !image_hash_valid;
+        if (rc) {
+            goto out;
+        }
+    }
+#endif
+
 
 out:
     if (rc) {

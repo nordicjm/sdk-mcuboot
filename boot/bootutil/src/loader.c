@@ -1507,6 +1507,7 @@ static void like_mbedtls_zeroize(void *p, size_t n)
  *
  * @return                      0 on success; nonzero on failure.
  */
+#ifdef MCUBOOT_DECOMPRESS_IMAGES
 static int
 boot_copy_region_decompress(struct boot_loader_state *state,
                  const struct flash_area *fap_src,
@@ -1744,6 +1745,7 @@ LOG_HEXDUMP_ERR(buf, copy_size, "write");
 BOOT_LOG_ERR("success?");
     return 0;
 }
+#endif
 
 int
 boot_copy_region(struct boot_loader_state *state,
@@ -1784,9 +1786,11 @@ uint32_t my_write_pos = 0;
     (void)state;
 #endif
 
+#ifdef MCUBOOT_DECOMPRESS_IMAGES
 if (1) {
 return boot_copy_region_decompress(state, fap_src, fap_dst, off_src, off_dst, sz, buf);
 }
+#endif
 
     bytes_copied = 0;
     while (bytes_copied < sz) {

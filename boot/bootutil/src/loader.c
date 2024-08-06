@@ -902,18 +902,18 @@ boot_is_header_valid(const struct image_header *hdr, const struct flash_area *fa
         int rc;
         int size_check;
 
-        if (&BOOT_IMG_AREA(state, BOOT_PRIMARY_SLOT) == NULL) {
+        if (BOOT_IMG_AREA(state, BOOT_PRIMARY_SLOT) == NULL) {
             opened_flash_area = true;
         }
 
         primary_fa_id = flash_area_id_from_multi_image_slot(BOOT_CURR_IMG(state), BOOT_PRIMARY_SLOT);
-        rc = flash_area_open(fa_id, &BOOT_IMG_AREA(state, BOOT_PRIMARY_SLOT));
+        rc = flash_area_open(primary_fa_id, &BOOT_IMG_AREA(state, BOOT_PRIMARY_SLOT));
         assert(rc == 0);
 
-        size_check = flash_area_get_size(&BOOT_IMG_AREA(state, BOOT_PRIMARY_SLOT);
+        size_check = flash_area_get_size(BOOT_IMG_AREA(state, BOOT_PRIMARY_SLOT));
 
         if (opened_flash_area) {
-            (void)flash_area_close(&BOOT_IMG_AREA(state, BOOT_PRIMARY_SLOT));
+            (void)flash_area_close(BOOT_IMG_AREA(state, BOOT_PRIMARY_SLOT));
         }
 
         if (size >= size_check) {

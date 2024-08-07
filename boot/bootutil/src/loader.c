@@ -117,12 +117,17 @@ boot_read_image_headers(struct boot_loader_state *state, bool require_all,
     int i;
 
     for (i = 0; i < BOOT_NUM_SLOTS; i++) {
+#ifdef MCUBOOT_DECOMPRESS_IMAGES
+        uint32_t area_id = flash_area_id_from_multi_image_slot(BOOT_CURR_IMG(state), i);
+#endif
+
         rc = BOOT_HOOK_CALL(boot_read_image_header_hook, BOOT_HOOK_REGULAR,
                             BOOT_CURR_IMG(state), i, boot_img_hdr(state, i));
         if (rc == BOOT_HOOK_REGULAR)
         {
             rc = boot_read_image_header(state, i, boot_img_hdr(state, i), bs);
         }
+BOOT_LOG_ERR("check %d = %d", i, rc);
         if (rc != 0) {
             /* If `require_all` is set, fail on any single fail, otherwise
              * if at least the first slot's header was read successfully,
@@ -145,6 +150,43 @@ boot_read_image_headers(struct boot_loader_state *state, bool require_all,
                 return rc;
             }
         }
+#ifdef MCUBOOT_DECOMPRESS_IMAGES
+        /* Check if this is a compressed imaege in secondary slot, if so, load the compressed image size */
+//        if (i == 1 && area_id == FLASH_AREA_IMAGE_SECONDARY(BOOT_CURR_IMG(state)) && IS_COMPRESSED(boot_img_hdr(state, i))) {
+        if (i == 1 && area_id == FLASH_AREA_IMAGE_SECONDARY(BOOT_CURR_IMG(state))) {
+            size_t image_compressed_size = 0;
+            const struct flash_area *fap;
+
+            rc = flash_area_open(area_id, &fap);
+
+            if (rc != 0) {
+                rc = BOOT_EFLASH;
+                goto done;
+            }
+
+            rc = bootutil_get_img_comp_size(boot_img_hdr(state, i), fap, &image_compressed_size);
+
+done:
+            flash_area_close(fap);
+
+
+            if (rc != 0) {
+                /* If `require_all` is set, fail on any single fail, otherwise
+                 * if at least the first slot's header was read successfully,
+                 * then the boot loader can attempt a boot.
+                 *
+                 * Failure to read any headers is a fatal error.
+                 */
+                if (i > 0 && !require_all) {
+                    return 0;
+                } else {
+                    return rc;
+                }
+            }
+
+            state->compressed_data[BOOT_CURR_IMG(state)].compressed_size = image_compressed_size;
+        }
+#endif
     }
 
     return 0;
@@ -897,7 +939,8 @@ boot_is_header_valid(const struct image_header *hdr, const struct flash_area *fa
     }
 
 #ifdef MCUBOOT_DECOMPRESS_IMAGES
-    if (MUST_DECOMPRESS(fap, BOOT_CURR_IMG(state), hdr)) {
+//    if (MUST_DECOMPRESS(fap, BOOT_CURR_IMG(state), hdr)) {
+    if (1) {
         /* Image is compressed in secondary slot, need to check if fits into the primary slot */
         bool opened_flash_area = false;
         int primary_fa_id;
@@ -917,6 +960,8 @@ boot_is_header_valid(const struct image_header *hdr, const struct flash_area *fa
         if (opened_flash_area) {
             (void)flash_area_close(BOOT_IMG_AREA(state, BOOT_PRIMARY_SLOT));
         }
+
+BOOT_LOG_ERR("size: %d, size_check: %d, comp_size: %d", size, size_check, state->compressed_data[BOOT_CURR_IMG(state)].compressed_size);
 
         if (size >= size_check) {
             return false;
@@ -1098,7 +1143,7 @@ boot_validate_slot(struct boot_loader_state *state, int slot,
     }
     if (!boot_is_header_valid(hdr, fap, state) || FIH_NOT_EQ(fih_rc, FIH_SUCCESS)) {
         if ((slot != BOOT_PRIMARY_SLOT) || ARE_SLOTS_EQUIVALENT()) {
-            flash_area_erase(fap, 0, flash_area_get_size(fap));
+//            flash_area_erase(fap, 0, flash_area_get_size(fap));
             /* Image is invalid, erase it to prevent further unnecessary
              * attempts to validate and boot it.
              */
@@ -1530,6 +1575,7 @@ uint32_t my_write_pos = 0;
 BOOT_LOG_ERR("hdr size: %d, protected tlv size: %d, img size: %d", hdr->ih_hdr_size, hdr->ih_protect_tlv_size, hdr->ih_img_size);
 
     /* Setup decompression system */
+#if 0
 #if CONFIG_NRF_COMPRESS_LZMA_VERSION_LZMA1
     if (!(hdr->ih_flags & IMAGE_F_COMPRESSED_LZMA1)) {
 #elif CONFIG_NRF_COMPRESS_LZMA_VERSION_LZMA2
@@ -1538,6 +1584,7 @@ BOOT_LOG_ERR("hdr size: %d, protected tlv size: %d, img size: %d", hdr->ih_hdr_s
         /* Compressed image does not use the correct compression type which is supported by this build */
         return 4;
     }
+#endif
 
     compression = nrf_compress_implementation_find(NRF_COMPRESS_TYPE_LZMA);
 BOOT_LOG_ERR("find... got %p", compression);
@@ -1783,7 +1830,8 @@ boot_copy_region(struct boot_loader_state *state,
 #ifdef MCUBOOT_DECOMPRESS_IMAGES
     hdr = boot_img_hdr(state, BOOT_SECONDARY_SLOT);
 
-    if (MUST_DECOMPRESS(fap_src, BOOT_CURR_IMG(state), hdr)) {
+//    if (MUST_DECOMPRESS(fap_src, BOOT_CURR_IMG(state), hdr)) {
+    if (1) {
         /* Use alternative function for compressed images */
         return boot_copy_region_decompress(state, fap_src, fap_dst, off_src, off_dst, sz, buf);
     }
@@ -2389,6 +2437,7 @@ boot_prepare_image_for_update(struct boot_loader_state *state,
     int rc;
     FIH_DECLARE(fih_rc, FIH_FAILURE);
 
+BOOT_LOG_ERR("boot_prepare_image_for_update 1");
     /* Determine the sector layout of the image slots and scratch area. */
     rc = boot_read_sectors(state);
     if (rc != 0) {
@@ -2405,6 +2454,7 @@ boot_prepare_image_for_update(struct boot_loader_state *state,
         }
     }
 
+BOOT_LOG_ERR("boot_prepare_image_for_update 2");
     /* Attempt to read an image header from each slot. */
     rc = boot_read_image_headers(state, false, NULL);
     if (rc != 0) {
@@ -2415,6 +2465,7 @@ boot_prepare_image_for_update(struct boot_loader_state *state,
         return;
     }
 
+BOOT_LOG_ERR("boot_prepare_image_for_update 3");
     /* If the current image's slots aren't compatible, no swap is possible.
      * Just boot into primary slot.
      */

@@ -257,6 +257,12 @@ struct boot_loader_state {
 #endif
     } slot_usage[BOOT_IMAGE_NUMBER];
 #endif /* MCUBOOT_DIRECT_XIP || MCUBOOT_RAM_LOAD */
+
+#if defined(MCUBOOT_DECOMPRESS_IMAGES)
+    struct {
+        size_t compressed_size;
+    } compressed_data[BOOT_IMAGE_NUMBER];
+#endif
 };
 
 fih_ret bootutil_verify_sig(uint8_t *hash, uint32_t hlen, uint8_t *sig,

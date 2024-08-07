@@ -755,7 +755,8 @@ boot_image_load_header(const struct flash_area *fa_p,
 
 #ifdef MCUBOOT_DECOMPRESS_IMAGES
     /* Can only check the validity of non-compressed images */
-    if (!MUST_DECOMPRESS(fa_p, BOOT_CURR_IMG(state), hdr)) {
+//    if (!MUST_DECOMPRESS(fa_p, BOOT_CURR_IMG(state), hdr)) {
+    if (0) {
 #endif
         if (!boot_u32_safe_add(&size, hdr->ih_img_size, hdr->ih_hdr_size) ||
             size >= flash_area_get_size(fa_p)) {

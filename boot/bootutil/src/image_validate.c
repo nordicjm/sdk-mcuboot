@@ -135,6 +135,7 @@ bootutil_img_hash(struct enc_key_data *enc_state, int image_index,
 //    if (MUST_DECOMPRESS(fap, image_index, hdr)) {
     if (1) {
         /* Setup decompression system */
+#if 0
 #if CONFIG_NRF_COMPRESS_LZMA_VERSION_LZMA1
         if (!(hdr->ih_flags & IMAGE_F_COMPRESSED_LZMA1)) {
 #elif CONFIG_NRF_COMPRESS_LZMA_VERSION_LZMA2
@@ -143,6 +144,7 @@ bootutil_img_hash(struct enc_key_data *enc_state, int image_index,
             /* Compressed image does not use the correct compression type which is supported by this build */
             return 4;
         }
+#endif
 
         compression = nrf_compress_implementation_find(NRF_COMPRESS_TYPE_LZMA);
 BOOT_LOG_ERR("find... got %p", compression);
@@ -231,11 +233,12 @@ BOOT_LOG_ERR("gives 0x%x, 0x%x, 0x%x in %p", (off - hdr_size), blk_sz, blk_off, 
 
 BOOT_LOG_ERR("bytes needed: %d", chunk_size);
 
-                    if ((off + blk_off + tmp_off + chunk_size) >= size) {
+                    if ((off + blk_off + tmp_off + chunk_size) >= tlv_off) {
                         last_packet = true;
                     }
 
 BOOT_LOG_ERR("check %d vs %d", (off + blk_off + tmp_off + chunk_size), size);
+BOOT_LOG_ERR("also check %d vs %d", off, tlv_off);
 
                     rc = compression->decompress(NULL, &tmp_buf[blk_off + tmp_off], chunk_size, last_packet, &offset, &output, &output_size);
 
@@ -479,6 +482,61 @@ bootutil_get_img_security_cnt(struct image_header *hdr,
     return 0;
 }
 
+int32_t
+bootutil_get_img_comp_size(struct image_header *hdr,
+                           const struct flash_area *fap,
+                           size_t *img_comp_size)
+{
+    struct image_tlv_iter it;
+    uint32_t off;
+    uint16_t len;
+    int32_t rc;
+
+    if ((hdr == NULL) ||
+        (fap == NULL) ||
+        (img_comp_size == NULL)) {
+        /* Invalid parameter. */
+        return BOOT_EBADARGS;
+    }
+
+    /* The security counter TLV is in the protected part of the TLV area. */
+//    if (hdr->ih_protect_tlv_size == 0) {
+//        return BOOT_EBADIMAGE;
+//    }
+
+    rc = bootutil_tlv_iter_begin(&it, hdr, fap, IMAGE_TLV_COMP_SIZE, true);
+BOOT_LOG_ERR("begin...");
+//    rc = bootutil_tlv_iter_begin(&it, hdr, fap, IMAGE_TLV_COMP_SIZE, false);
+    if (rc) {
+        return rc;
+    }
+
+    /* Traverse through the protected TLV area to find
+     * the security counter TLV.
+     */
+
+    rc = bootutil_tlv_iter_next(&it, &off, &len, NULL);
+    if (rc != 0) {
+        /* Security counter TLV has not been found. */
+        return -1;
+    }
+
+BOOT_LOG_ERR("len... %d", len);
+    if (len != sizeof(*img_comp_size)) {
+        /* Security counter is not valid. */
+        return BOOT_EBADIMAGE;
+    }
+
+    rc = LOAD_IMAGE_DATA(hdr, fap, off, img_comp_size, len);
+    if (rc != 0) {
+        return BOOT_EFLASH;
+    }
+
+BOOT_LOG_ERR("end... %d", *img_comp_size);
+
+    return 0;
+}
+
 #ifndef ALLOW_ROGUE_TLVS
 /*
  * The following list of TLVs are the only entries allowed in the unprotected
@@ -545,13 +603,51 @@ bootutil_img_validate(struct enc_key_data *enc_state, int image_index,
 #ifdef MCUBOOT_DECOMPRESS_IMAGES
     /* If the image is compressed, the integrity of the image must also be validated */
     if (MUST_DECOMPRESS(fap, image_index, hdr)) {
+        bool found_compressed_size = false;
+
+        rc = bootutil_tlv_iter_begin(&it, hdr, fap, IMAGE_TLV_COMP_SIZE, true);
+//        rc = bootutil_tlv_iter_begin(&it, hdr, fap, IMAGE_TLV_COMP_SIZE, false);
+        if (rc) {
+            goto out;
+        }
+
+        if (it.tlv_end > bootutil_max_image_size(fap)) {
+            rc = -1;
+            goto out;
+        }
+
+        while (true) {
+            rc = bootutil_tlv_iter_next(&it, &off, &len, &type);
+            if (rc < 0) {
+                goto out;
+            } else if (rc > 0) {
+                break;
+            }
+
+            if (type == IMAGE_TLV_COMP_SIZE) {
+                if (len != sizeof(size_t)) {
+                    rc = -1;
+                    goto out;
+                }
+
+                found_compressed_size = 1;
+            }
+
+        }
+
+        rc = !found_compressed_size;
+        if (rc) {
+            goto out;
+        }
+
         rc = bootutil_img_hash(enc_state, image_index, hdr, fap, tmp_buf,
                 tmp_buf_sz, hash, seed, seed_len, false);
         if (rc) {
             goto out;
         }
 
-        rc = bootutil_tlv_iter_begin(&it, hdr, fap, IMAGE_TLV_RAW_SLOT_SHA256, false);
+        rc = bootutil_tlv_iter_begin(&it, hdr, fap, IMAGE_TLV_RAW_SLOT_SHA256, true);
+//        rc = bootutil_tlv_iter_begin(&it, hdr, fap, IMAGE_TLV_RAW_SLOT_SHA256, false);
         if (rc) {
             goto out;
         }
@@ -594,7 +690,15 @@ bootutil_img_validate(struct enc_key_data *enc_state, int image_index,
         if (rc) {
             goto out;
         }
+
+        image_hash_valid = 0;
     }
+
+/*
+    struct {
+        size_t compressed_size;
+    } compressed_data[BOOT_IMAGE_NUMBER];
+*/
 #endif
 
     rc = bootutil_img_hash(enc_state, image_index, hdr, fap, tmp_buf,

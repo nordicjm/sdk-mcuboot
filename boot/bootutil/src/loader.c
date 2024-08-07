@@ -1518,7 +1518,7 @@ boot_copy_region_decompress(struct boot_loader_state *state,
     struct image_header *hdr;
     uint32_t pos = 0;
     struct nrf_compress_implementation *compression = NULL;
-    TARGET_STATIC uint8_t second_buf[256] __attribute__((aligned(4)));
+    TARGET_STATIC uint8_t second_buf[CONFIG_BOOT_DECOMPRESSION_BUFFER_SIZE] __attribute__((aligned(4)));
 uint16_t second_buf_size = 0;
     uint16_t write_alignment;
 uint32_t my_write_pos = 0;
@@ -1528,6 +1528,15 @@ uint32_t my_write_pos = 0;
 BOOT_LOG_ERR("hdr size: %d, protected tlv size: %d, img size: %d", hdr->ih_hdr_size, hdr->ih_protect_tlv_size, hdr->ih_img_size);
 
     /* Setup decompression system */
+#if CONFIG_NRF_COMPRESS_LZMA_VERSION_LZMA1
+    if (!(hdr->flags & IMAGE_F_COMPRESSED_LZMA1)) {
+#elif CONFIG_NRF_COMPRESS_LZMA_VERSION_LZMA2
+    if (!(hdr->flags & IMAGE_F_COMPRESSED_LZMA2)) {
+#endif
+        /* Compressed image does not use the correct compression type which is supported by this build */
+        return 4;
+    }
+
     compression = nrf_compress_implementation_find(NRF_COMPRESS_TYPE_LZMA);
 BOOT_LOG_ERR("find... got %p", compression);
 
@@ -1577,7 +1586,6 @@ BOOT_LOG_ERR("write to 0x%x for %d", (off_dst + pos), copy_size);
     while (pos < hdr->ih_img_size) {
         uint32_t copy_size = hdr->ih_img_size - pos;
         uint32_t tmp_off = 0;
-bool last_packet = false;
 
         if (copy_size > BUF_SZ) {
             copy_size = BUF_SZ;
@@ -1596,6 +1604,7 @@ BOOT_LOG_ERR("read from 0x%x for %d", (off_src + hdr->ih_hdr_size + pos), copy_s
             uint8_t *output = NULL;
             uint32_t output_size = 0;
 uint32_t chunk_size;
+            bool last_packet = false;
 
 //TODO: make this function unsigned
             chunk_size = compression->decompress_bytes_needed(NULL);
@@ -1609,8 +1618,6 @@ uint32_t chunk_size;
             }
 
 BOOT_LOG_ERR("bytes needed: %d", chunk_size);
-
-//last packet should be set here
 
 BOOT_LOG_ERR("LAST? pos: %d, tmp_off: %d, chunk %d, compare: %d, img_size: %d", pos, tmp_off, chunk_size, (pos + tmp_off + chunk_size), hdr->ih_img_size);
             if ((pos + tmp_off + chunk_size) >= hdr->ih_img_size) {
@@ -1696,11 +1703,7 @@ LOG_HEXDUMP_ERR(second_buf, second_buf_size, "write");
     }
 
     /* Clean up decompression system */
-    rc = compression->deinit(NULL);
-
-    if (rc) {
-//??
-    }
+    (void)compression->deinit(NULL);
 
     /* Copy image trailer */
 BOOT_LOG_ERR("footer... 0x%x of 0x%x", pos, sz);
@@ -1776,10 +1779,12 @@ boot_copy_region(struct boot_loader_state *state,
 #endif
 
 #ifdef MCUBOOT_DECOMPRESS_IMAGES
-            hdr = boot_img_hdr(state, BOOT_SECONDARY_SLOT);
+    hdr = boot_img_hdr(state, BOOT_SECONDARY_SLOT);
+
     if (MUST_DECOMPRESS(fap_src, BOOT_CURR_IMG(state), hdr)) {
-return boot_copy_region_decompress(state, fap_src, fap_dst, off_src, off_dst, sz, buf);
-}
+        /* Use alternative function for compressed images */
+        return boot_copy_region_decompress(state, fap_src, fap_dst, off_src, off_dst, sz, buf);
+    }
 #endif
 
     bytes_copied = 0;

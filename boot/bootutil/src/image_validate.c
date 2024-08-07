@@ -127,13 +127,19 @@ bootutil_img_hash(struct enc_key_data *enc_state, int image_index,
     /* If protected TLVs are present they are also hashed. */
     size += hdr->ih_protect_tlv_size;
 
-//if (compressed) {
-//}
-
 #if defined(MCUBOOT_DECOMPRESS_IMAGES)
 //    if (MUST_DECOMPRESS(fap, image_index, hdr)) {
     if (1) {
         /* Setup decompression system */
+#if CONFIG_NRF_COMPRESS_LZMA_VERSION_LZMA1
+        if (!(hdr->flags & IMAGE_F_COMPRESSED_LZMA1)) {
+#elif CONFIG_NRF_COMPRESS_LZMA_VERSION_LZMA2
+        if (!(hdr->flags & IMAGE_F_COMPRESSED_LZMA2)) {
+#endif
+            /* Compressed image does not use the correct compression type which is supported by this build */
+            return 4;
+        }
+
         compression = nrf_compress_implementation_find(NRF_COMPRESS_TYPE_LZMA);
 BOOT_LOG_ERR("find... got %p", compression);
 
@@ -176,7 +182,7 @@ return 4;
         rc = flash_area_read(fap, off, tmp_buf, blk_sz);
         if (rc) {
             bootutil_sha_drop(&sha_ctx);
-            return rc;
+            goto cleanup;
         }
 #ifdef MCUBOOT_ENC_IMAGES
         if (MUST_DECRYPT(fap, image_index, hdr)) {
@@ -232,14 +238,15 @@ BOOT_LOG_ERR("check %d vs %d", (off + blk_off + tmp_off + chunk_size), size);
 BOOT_LOG_ERR("rc = %d, dat in = %02x %02x, offset = %d, output size = %d, buffer = %p, last = %d", rc, tmp_buf[blk_off + tmp_off], tmp_buf[blk_off + tmp_off + 1], tmp_off, output_size, output, last_packet);
 
                     if (rc) {
-return rc;
+                        goto cleanup;
                     }
 
 //TODO: should only be checked in the dry run
 #if 0
                     if (last_packet == true && (my_write_pos + output_size) == 0) {
                          /* Last packet and we still have no output, this is a faulty update */
-return -3;
+rc = -3;
+goto cleanup;
                     }
 
                     if (offset == 0) {
@@ -269,9 +276,18 @@ BOOT_LOG_ERR("outside 0x%x, 0x%x", off, blk_sz);
 
     bootutil_sha_finish(&sha_ctx, hash_result);
     bootutil_sha_drop(&sha_ctx);
+    rc = 0;
 LOG_HEXDUMP_ERR(hash_result, 32, "result");
 
-    return 0;
+cleanup:
+#if defined(MCUBOOT_DECOMPRESS_IMAGES)
+//    if (MUST_DECOMPRESS(fap, image_index, hdr)) {
+    if (1) {
+        (void)compression->deinit(NULL);
+    }
+#endif
+
+    return rc;
 }
 
 /*

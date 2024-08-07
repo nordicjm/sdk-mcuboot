@@ -252,6 +252,7 @@ BOOT_LOG_ERR("rc = %d, dat in = %02x %02x, offset = %d, output size = %d, buffer
 rc = -3;
 goto cleanup;
                     }
+#endif
 
                     if (offset == 0) {
 //TODO: if this happens over and over, error, though only check in dry run
@@ -265,7 +266,6 @@ LOG_HEXDUMP_ERR(output, output_size, "hash");
 
                     tmp_off += chunk_size;
                 }
-#endif
 } else {
 BOOT_LOG_ERR("outside 0x%x, 0x%x", off, blk_sz);
             }

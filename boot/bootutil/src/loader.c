@@ -1582,7 +1582,9 @@ BOOT_LOG_ERR("hdr size: %d, protected tlv size: %d, img size: %d", hdr->ih_hdr_s
     if (!(hdr->ih_flags & IMAGE_F_COMPRESSED_LZMA2)) {
 #endif
         /* Compressed image does not use the correct compression type which is supported by this build */
-        return 4;
+//        rc = BOOT_EFLASH;
+rc = 4;
+        goto finish;
     }
 #endif
 
@@ -1591,13 +1593,17 @@ BOOT_LOG_ERR("find... got %p", compression);
 
     if (compression == NULL || compression->init == NULL || compression->deinit == NULL || compression->decompress_bytes_needed == NULL || compression->decompress == NULL) {
         /* Compression library missing or missing required function pointer */
-return 4;
+//        rc = BOOT_EFLASH;
+rc = 4;
+        goto finish;
     }
 
     rc = compression->init(NULL);
 
     if (rc) {
-return 4;
+//        rc = BOOT_EFLASH;
+rc = 4;
+        goto finish;
     }
 
     write_alignment = flash_area_align(fap_dst);
@@ -1615,7 +1621,8 @@ BOOT_LOG_ERR("read from 0x%x for %d", (off_src + pos), copy_size);
 LOG_HEXDUMP_ERR(buf, copy_size, "read");
 
         if (rc != 0) {
-            return BOOT_EFLASH;
+            rc = BOOT_EFLASH;
+            goto finish;
         }
 
         /* This assumes that the flash write size is compatible with the image header size */
@@ -1623,7 +1630,8 @@ BOOT_LOG_ERR("write to 0x%x for %d", (off_dst + pos), copy_size);
         rc = flash_area_write(fap_dst, off_dst + pos, buf, copy_size);
 
         if (rc != 0) {
-            return BOOT_EFLASH;
+            rc = BOOT_EFLASH;
+            goto finish;
         }
 
         pos += copy_size;
@@ -1644,7 +1652,8 @@ BOOT_LOG_ERR("read from 0x%x for %d", (off_src + hdr->ih_hdr_size + pos), copy_s
         rc = flash_area_read(fap_src, off_src + hdr->ih_hdr_size + pos, buf, copy_size);
 
         if (rc != 0) {
-            return BOOT_EFLASH;
+            rc = BOOT_EFLASH;
+            goto finish;
         }
 
         /* Decompress data in chunks, writing it back with a larger write offset of the primary slot than read size of the secondary slot */
@@ -1678,13 +1687,17 @@ BOOT_LOG_ERR("LAST? pos: %d, tmp_off: %d, chunk %d, compare: %d, img_size: %d", 
 BOOT_LOG_ERR("rc = %d, dat in = %02x %02x, offset = %d, output size = %d, buffer = %p, last = %d", rc, buf[tmp_off], buf[tmp_off + 1], tmp_off, output_size, output, last_packet);
 
             if (rc) {
-return rc;
+//                rc = BOOT_EFLASH;
+rc = -4;
+                goto done;
             }
 
 //TODO: should only be checked in the dry run
             if (last_packet == true && (my_write_pos + output_size) == 0) {
                 /* Last packet and we still have no output, this is a faulty update */
-return -3;
+//                rc = BOOT_EFLASH;
+rc = -3;
+                goto done;
             }
 
             if (offset == 0) {
@@ -1714,7 +1727,8 @@ LOG_HEXDUMP_ERR(second_buf, sizeof(second_buf), "write");
                     rc = flash_area_write(fap_dst, (off_dst + hdr->ih_hdr_size + my_write_pos), second_buf, sizeof(second_buf));
 
                     if (rc != 0) {
-                        return BOOT_EFLASH;
+                        rc = BOOT_EFLASH;
+                        goto done;
                     }
 
                     my_write_pos += sizeof(second_buf);
@@ -1744,7 +1758,8 @@ LOG_HEXDUMP_ERR(second_buf, second_buf_size, "write");
         rc = flash_area_write(fap_dst, (off_dst + hdr->ih_hdr_size + my_write_pos), second_buf, second_buf_size);
 
         if (rc != 0) {
-            return BOOT_EFLASH;
+            rc = BOOT_EFLASH;
+            goto done;
         }
 
         my_write_pos += second_buf_size;
@@ -1773,7 +1788,8 @@ BOOT_LOG_ERR("read from 0x%x for %d", (off_src + hdr->ih_hdr_size + hdr->ih_img_
         rc = flash_area_read(fap_src, (off_src + hdr->ih_hdr_size + hdr->ih_img_size + pos), buf, copy_size);
 
         if (rc) {
-            return BOOT_EFLASH;
+            rc = BOOT_EFLASH;
+            goto done;
         }
 
         /* Check if additional write padding should be applied to meet the minimum write size */
@@ -1788,13 +1804,18 @@ LOG_HEXDUMP_ERR(buf, copy_size, "write");
         rc = flash_area_write(fap_dst, (off_dst + hdr->ih_hdr_size + my_write_pos + pos), buf, (copy_size + write_padding_size));
 
         if (rc) {
-            return BOOT_EFLASH;
+            rc = BOOT_EFLASH;
+            goto done;
         }
 
         pos += copy_size;
     }
 
 BOOT_LOG_ERR("success?");
+finish:
+
+    memset(second_buf, 0, sizeof(second_buf));
+
     return 0;
 }
 #endif

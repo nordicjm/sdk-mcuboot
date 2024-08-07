@@ -1531,9 +1531,9 @@ BOOT_LOG_ERR("hdr size: %d, protected tlv size: %d, img size: %d", hdr->ih_hdr_s
 
     /* Setup decompression system */
 #if CONFIG_NRF_COMPRESS_LZMA_VERSION_LZMA1
-    if (!(hdr->flags & IMAGE_F_COMPRESSED_LZMA1)) {
+    if (!(hdr->ih_flags & IMAGE_F_COMPRESSED_LZMA1)) {
 #elif CONFIG_NRF_COMPRESS_LZMA_VERSION_LZMA2
-    if (!(hdr->flags & IMAGE_F_COMPRESSED_LZMA2)) {
+    if (!(hdr->ih_flags & IMAGE_F_COMPRESSED_LZMA2)) {
 #endif
         /* Compressed image does not use the correct compression type which is supported by this build */
         return 4;

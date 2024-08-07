@@ -136,9 +136,9 @@ bootutil_img_hash(struct enc_key_data *enc_state, int image_index,
     if (1) {
         /* Setup decompression system */
 #if CONFIG_NRF_COMPRESS_LZMA_VERSION_LZMA1
-        if (!(hdr->flags & IMAGE_F_COMPRESSED_LZMA1)) {
+        if (!(hdr->ih_flags & IMAGE_F_COMPRESSED_LZMA1)) {
 #elif CONFIG_NRF_COMPRESS_LZMA_VERSION_LZMA2
-        if (!(hdr->flags & IMAGE_F_COMPRESSED_LZMA2)) {
+        if (!(hdr->ih_flags & IMAGE_F_COMPRESSED_LZMA2)) {
 #endif
             /* Compressed image does not use the correct compression type which is supported by this build */
             return 4;

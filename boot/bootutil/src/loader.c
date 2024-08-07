@@ -49,7 +49,9 @@
 #include "bootutil/boot_hooks.h"
 #include "bootutil/mcuboot_status.h"
 
+#if defined(MCUBOOT_DECOMPRESS_IMAGES)
 #include <nrf_compress/implementation.h>
+#endif
 
 #ifdef __ZEPHYR__
 #include <zephyr/sys/reboot.h>

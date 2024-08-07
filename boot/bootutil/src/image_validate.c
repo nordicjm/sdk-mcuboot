@@ -40,7 +40,9 @@
 
 #include "mcuboot_config/mcuboot_config.h"
 
+#if defined(MCUBOOT_DECOMPRESS_IMAGES)
 #include <nrf_compress/implementation.h>
+#endif
 
 #include "bootutil/bootutil_log.h"
 
@@ -83,7 +85,9 @@ bootutil_img_hash(struct enc_key_data *enc_state, int image_index,
     uint32_t blk_off;
     uint32_t tlv_off;
 
+#if defined(MCUBOOT_DECOMPRESS_IMAGES)
     struct nrf_compress_implementation *compression = NULL;
+#endif
 
 #if (BOOT_IMAGE_NUMBER == 1) || !defined(MCUBOOT_ENC_IMAGES) || \
     defined(MCUBOOT_RAM_LOAD)
@@ -753,8 +757,6 @@ bootutil_img_validate(struct enc_key_data *enc_state, int image_index,
             /* The image's security counter has been successfully verified. */
             security_counter_valid = fih_rc;
 #endif /* MCUBOOT_HW_ROLLBACK_PROT */
-#if 0
-#endif
         }
     }
 

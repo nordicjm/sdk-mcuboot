@@ -482,61 +482,6 @@ bootutil_get_img_security_cnt(struct image_header *hdr,
     return 0;
 }
 
-int32_t
-bootutil_get_img_comp_size(struct image_header *hdr,
-                           const struct flash_area *fap,
-                           size_t *img_comp_size)
-{
-    struct image_tlv_iter it;
-    uint32_t off;
-    uint16_t len;
-    int32_t rc;
-
-    if ((hdr == NULL) ||
-        (fap == NULL) ||
-        (img_comp_size == NULL)) {
-        /* Invalid parameter. */
-        return BOOT_EBADARGS;
-    }
-
-    /* The security counter TLV is in the protected part of the TLV area. */
-//    if (hdr->ih_protect_tlv_size == 0) {
-//        return BOOT_EBADIMAGE;
-//    }
-
-    rc = bootutil_tlv_iter_begin(&it, hdr, fap, IMAGE_TLV_COMP_SIZE, true);
-BOOT_LOG_ERR("begin...");
-//    rc = bootutil_tlv_iter_begin(&it, hdr, fap, IMAGE_TLV_COMP_SIZE, false);
-    if (rc) {
-        return rc;
-    }
-
-    /* Traverse through the protected TLV area to find
-     * the security counter TLV.
-     */
-
-    rc = bootutil_tlv_iter_next(&it, &off, &len, NULL);
-    if (rc != 0) {
-        /* Security counter TLV has not been found. */
-        return -1;
-    }
-
-BOOT_LOG_ERR("len... %d", len);
-    if (len != sizeof(*img_comp_size)) {
-        /* Security counter is not valid. */
-        return BOOT_EBADIMAGE;
-    }
-
-    rc = LOAD_IMAGE_DATA(hdr, fap, off, img_comp_size, len);
-    if (rc != 0) {
-        return BOOT_EFLASH;
-    }
-
-BOOT_LOG_ERR("end... %d", *img_comp_size);
-
-    return 0;
-}
-
 #ifndef ALLOW_ROGUE_TLVS
 /*
  * The following list of TLVs are the only entries allowed in the unprotected

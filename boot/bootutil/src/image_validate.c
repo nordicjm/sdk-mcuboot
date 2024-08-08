@@ -124,16 +124,29 @@ bootutil_img_hash(struct enc_key_data *enc_state, int image_index,
 
     /* Hash is computed over image header and image itself. */
     size = hdr_size = hdr->ih_hdr_size;
-//size needs adapting
+#if defined(MCUBOOT_DECOMPRESS_IMAGES)
+    if (MUST_DECOMPRESS(fap, image_index, hdr)) {
+        size_t compressed_size = 0;
+        rc = bootutil_get_img_comp_size(hdr, fap, &compressed_size);
+
+        if (rc || compressed_size == 0) {
+            return -1;
+        }
+
+        size += compressed_size;
+    } else {
+        size += hdr->ih_img_size;
+    }
+#else
     size += hdr->ih_img_size;
+#endif
     tlv_off = size;
 
     /* If protected TLVs are present they are also hashed. */
     size += hdr->ih_protect_tlv_size;
 
 #if defined(MCUBOOT_DECOMPRESS_IMAGES)
-//    if (MUST_DECOMPRESS(fap, image_index, hdr)) {
-    if (1) {
+    if (MUST_DECOMPRESS(fap, image_index, hdr)) {
         /* Setup decompression system */
 #if 0
 #if CONFIG_NRF_COMPRESS_LZMA_VERSION_LZMA1
@@ -220,12 +233,7 @@ BOOT_LOG_ERR("gives 0x%x, 0x%x, 0x%x in %p", (off - hdr_size), blk_sz, blk_off, 
                     uint32_t output_size = 0;
                     uint32_t chunk_size;
 
-//TODO: make this function unsigned
                     chunk_size = compression->decompress_bytes_needed(NULL);
-
-//            if (rc <= 0) {
-//return -4;
-//            }
 
                     if (chunk_size > (blk_sz - tmp_off)) {
                         chunk_size = (blk_sz - tmp_off);

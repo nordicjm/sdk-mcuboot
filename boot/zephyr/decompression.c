@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: LicenseRef-Nordic-5-Clause
  */
 
-#include "decompression.h"
 #include <nrf_compress/implementation.h>
+#include "compression/decompression.h"
 
 #include "bootutil/bootutil_log.h"
 BOOT_LOG_MODULE_DECLARE(mcuboot);
@@ -215,6 +215,14 @@ BOOT_LOG_ERR("data size = %d", data_size);
                 if (second_buf_size == sizeof(second_buf)) {
 BOOT_LOG_ERR("write to 0x%x", (off_dst + hdr->ih_hdr_size + my_write_pos));
 LOG_HEXDUMP_ERR(second_buf, sizeof(second_buf), "write");
+
+
+#ifdef MCUBOOT_ENC_IMAGES
+                    if (IS_ENCRYPTED(hdr)) {
+                        boot_encrypt(BOOT_CURR_ENC(state), image_index, fap_src, (off_dst + hdr->ih_hdr_size + my_write_pos), sizeof(second_buf), 0, second_buf);
+                    }
+#endif
+
                     rc = flash_area_write(fap_dst, (off_dst + hdr->ih_hdr_size + my_write_pos), second_buf, sizeof(second_buf));
 
                     if (rc != 0) {
@@ -237,6 +245,11 @@ LOG_HEXDUMP_ERR(second_buf, sizeof(second_buf), "write");
         /* Write out rest of buffer */
         uint32_t write_padding_size = second_buf_size % write_alignment;
 
+#ifdef MCUBOOT_ENC_IMAGES
+        if (IS_ENCRYPTED(hdr)) {
+            boot_encrypt(BOOT_CURR_ENC(state), image_index, fap_src, (off_dst + hdr->ih_hdr_size + my_write_pos), second_buf_size, 0, second_buf);
+        }
+#endif
 
         /* Check if additional write padding should be applied to meet the minimum write size */
         if (write_padding_size) {

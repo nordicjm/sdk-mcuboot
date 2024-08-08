@@ -51,6 +51,7 @@
 
 #if defined(MCUBOOT_DECOMPRESS_IMAGES)
 #include <nrf_compress/implementation.h>
+#include <compression/decompression.h>
 #endif
 
 #ifdef __ZEPHYR__
@@ -1570,7 +1571,7 @@ boot_copy_region(struct boot_loader_state *state,
 //    if (MUST_DECOMPRESS(fap_src, BOOT_CURR_IMG(state), hdr)) {
     if (1) {
         /* Use alternative function for compressed images */
-        return boot_copy_region_decompress(state, fap_src, fap_dst, off_src, off_dst, sz, buf);
+        return boot_copy_region_decompress(state, fap_src, fap_dst, off_src, off_dst, sz, buf, BUF_SZ);
     }
 #endif
 

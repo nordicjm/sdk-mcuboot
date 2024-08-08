@@ -42,6 +42,7 @@
 
 #if defined(MCUBOOT_DECOMPRESS_IMAGES)
 #include <nrf_compress/implementation.h>
+#include <compression/decompression.h>
 #endif
 
 #include "bootutil/bootutil_log.h"
@@ -204,6 +205,7 @@ return 4;
             goto cleanup;
         }
 #ifdef MCUBOOT_ENC_IMAGES
+//skip if compressed:
         if (MUST_DECRYPT(fap, image_index, hdr)) {
             /* Only payload is encrypted (area between header and TLVs) */
             if (off >= hdr_size && off < tlv_off) {
@@ -272,6 +274,15 @@ goto cleanup;
 
                     if (output_size > 0) {
 LOG_HEXDUMP_ERR(output, output_size, "hash");
+
+#ifdef MCUBOOT_ENC_IMAGES
+//TODO
+                        if (MUST_DECRYPT(fap, image_index, hdr)) {
+                            /* Only payload is encrypted (area between header and TLVs) */
+                            boot_encrypt(enc_state, image_index, fap, (off - hdr_size + tmp_off), output_size, 0, output);
+                        }
+#endif
+
                         bootutil_sha_update(&sha_ctx, output, output_size);
                     }
 

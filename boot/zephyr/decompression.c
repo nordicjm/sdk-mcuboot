@@ -6,6 +6,7 @@
 
 #include <nrf_compress/implementation.h>
 #include "compression/decompression.h"
+#include "bootutil/crypto/sha.h"
 
 #include "bootutil/bootutil_log.h"
 BOOT_LOG_MODULE_DECLARE(mcuboot);
@@ -38,6 +39,7 @@ bool boot_is_compressed_header_valid(struct boot_loader_state *state, uint32_t s
         (void)flash_area_close(BOOT_IMG_AREA(state, BOOT_PRIMARY_SLOT));
     }
 
+//TODO
 BOOT_LOG_ERR("size: %d, size_check: %d, comp_size: %d", size, size_check, state->compressed_data[BOOT_CURR_IMG(state)].compressed_size);
 
     if (size >= size_check) {
@@ -46,6 +48,237 @@ BOOT_LOG_ERR("size: %d, size_check: %d, comp_size: %d", size, size_check, state-
 
     return true;
 }
+
+int bootutil_img_hash_decompress(struct enc_key_data *enc_state, int image_index,
+                  struct image_header *hdr, const struct flash_area *fap,
+                  uint8_t *tmp_buf, uint32_t tmp_buf_sz, uint8_t *hash_result,
+                  uint8_t *seed, int seed_len)
+{
+//TODO
+bootutil_sha_context sha_ctx;
+struct image_header modified_hdr;
+    int rc;
+    uint32_t pos = 0;
+    struct nrf_compress_implementation *compression = NULL;
+//    TARGET_STATIC uint8_t second_buf[CONFIG_BOOT_DECOMPRESSION_BUFFER_SIZE] __attribute__((aligned(4)));
+//uint16_t second_buf_size = 0;
+//    uint16_t write_alignment;
+//uint32_t my_write_pos = 0;
+
+BOOT_LOG_ERR("hdr size: %d, protected tlv size: %d, img size: %d", hdr->ih_hdr_size, hdr->ih_protect_tlv_size, hdr->ih_img_size);
+
+bootutil_sha_init(&sha_ctx);
+
+    /* Setup decompression system */
+#if 0
+#if CONFIG_NRF_COMPRESS_LZMA_VERSION_LZMA1
+    if (!(hdr->ih_flags & IMAGE_F_COMPRESSED_LZMA1)) {
+#elif CONFIG_NRF_COMPRESS_LZMA_VERSION_LZMA2
+    if (!(hdr->ih_flags & IMAGE_F_COMPRESSED_LZMA2)) {
+#endif
+        /* Compressed image does not use the correct compression type which is supported by this build */
+//        rc = BOOT_EFLASH;
+rc = 4;
+        goto finish;
+    }
+#endif
+
+    compression = nrf_compress_implementation_find(NRF_COMPRESS_TYPE_LZMA);
+BOOT_LOG_ERR("find... got %p", compression);
+
+    if (compression == NULL || compression->init == NULL || compression->deinit == NULL || compression->decompress_bytes_needed == NULL || compression->decompress == NULL) {
+        /* Compression library missing or missing required function pointer */
+//        rc = BOOT_EFLASH;
+rc = 4;
+        goto finish;
+    }
+
+    rc = compression->init(NULL);
+
+    if (rc) {
+//        rc = BOOT_EFLASH;
+rc = 4;
+        goto finish;
+    }
+
+//header: replace size with TLV, reduce protected TLV size by size of decompressed image size, remove compressed flags
+//protected TLV: remove decompressed image size
+//image: decompress
+//tlv: ignore, not part of hash
+
+    memcpy(&modified_hdr, hdr, sizeof(modified_hdr));
+
+size_t decompressed_image_size;
+rc = bootutil_get_img_comp_size(hdr, fap, &decompressed_image_size);
+
+if (rc) {
+rc = 4;
+goto finish;
+}
+
+    modified_hdr.ih_flags &= ~COMPRESSIONFLAGS;
+    modified_hdr.ih_img_size = decompressed_image_size;
+    modified_hdr.ih_protect_tlv_size -= 8;
+//2 bytes type, 2 bytes length, size of data (4) = 8
+
+//sha of header
+bootutil_sha_update(&sha_ctx, &modified_hdr, sizeof(modified_hdr));
+
+//deal with protected TLV part here
+pos = 0;
+
+    if (hdr->ih_protect_tlv_size > 0) {
+        struct image_tlv_info tlv_header;
+
+        rc = flash_area_read(fap, hdr->ih_hdr_size, &tlv_header, sizeof(tlv_header));
+
+        if (rc) {
+            rc = BOOT_EFLASH;
+            goto finish;
+        }
+
+        tlv_header.it_tlv_tot -= 8;
+
+//sha256 here
+bootutil_sha_update(&sha_ctx, &tlv_header, sizeof(tlv_header));
+
+        while (pos < hdr->ih_protect_tlv_size) {
+            struct image_tlv tlv_entry_header;
+
+//tmp_buf
+//tmp_buf_size
+            rc = flash_area_read(fap, hdr->ih_hdr_size + sizeof(tlv_header) + pos, &tlv_entry_header, sizeof(tlv_entry_header));
+
+            if (rc) {
+                rc = BOOT_EFLASH;
+                goto finish;
+            }
+
+            pos += sizeof(tlv_entry_header);
+
+//tlv_entry_header.it_len
+            if (tlv_entry_header.it_type == IMAGE_TLV_COMP_SIZE || tlv_entry_header.it_type == IMAGE_TLV_COMP_SHA || tlv_entry_header.it_type == IMAGE_TLV_COMP_SIGNATURE) {
+                /* Skip these entries */
+                pos += tlv_entry_header.it_len;
+                continue;
+            }
+
+bootutil_sha_update(&sha_ctx, &tlv_entry_header, sizeof(tlv_entry_header));
+uint16_t fizzle = 0;
+
+            while (fizzle < tlv_entry_header.it_len) {
+                uint16_t read_size = tmp_buf_sz;
+
+                if ((fizzle + read_size) > tlv_entry_header.it_len) {
+                    read_size = tlv_entry_header.it_len - fizzle;
+                }
+
+                rc = flash_area_read(fap, hdr->ih_hdr_size + sizeof(tlv_header) + pos + fizzle, tmp_buf, read_size);
+
+                if (rc) {
+                    rc = BOOT_EFLASH;
+                    goto finish;
+                }
+
+//hash here
+bootutil_sha_update(&sha_ctx, tmp_buf, read_size);
+            }
+
+            pos += tlv_entry_header.it_len;
+        }
+    }
+
+    /* Read in compressed data, decompress and add to hash calculation */
+    pos = 0;
+
+//TODO
+    while (pos < hdr->ih_img_size) {
+        uint32_t copy_size = hdr->ih_img_size - pos;
+        uint32_t tmp_off = 0;
+
+        if (copy_size > tmp_buf_sz) {
+            copy_size = tmp_buf_sz;
+        }
+
+BOOT_LOG_ERR("read from 0x%x for %d", (hdr->ih_hdr_size + pos), copy_size);
+        rc = flash_area_read(fap, hdr->ih_hdr_size + pos, tmp_buf, copy_size);
+
+        if (rc != 0) {
+            rc = BOOT_EFLASH;
+            goto finish;
+        }
+
+        /* Decompress data in chunks, writing it back with a larger write offset of the primary slot than read size of the secondary slot */
+        while (tmp_off < copy_size) {
+            uint32_t offset = 0;
+            uint8_t *output = NULL;
+            uint32_t output_size = 0;
+uint32_t chunk_size;
+            bool last_packet = false;
+
+            chunk_size = compression->decompress_bytes_needed(NULL);
+
+            if (chunk_size > (copy_size - tmp_off)) {
+                chunk_size = (copy_size - tmp_off);
+            }
+
+BOOT_LOG_ERR("bytes needed: %d", chunk_size);
+
+BOOT_LOG_ERR("LAST? pos: %d, tmp_off: %d, chunk %d, compare: %d, img_size: %d", pos, tmp_off, chunk_size, (pos + tmp_off + chunk_size), hdr->ih_img_size);
+            if ((pos + tmp_off + chunk_size) >= hdr->ih_img_size) {
+                last_packet = true;
+            }
+
+            rc = compression->decompress(NULL, &tmp_buf[tmp_off], chunk_size, last_packet, &offset, &output, &output_size);
+
+BOOT_LOG_ERR("rc = %d, dat in = %02x %02x, offset = %d, output size = %d, buffer = %p, last = %d", rc, tmp_buf[tmp_off], tmp_buf[tmp_off + 1], tmp_off, output_size, output, last_packet);
+
+            if (rc) {
+//                rc = BOOT_EFLASH;
+rc = -4;
+                goto finish;
+            }
+
+//TODO: should only be checked in the dry run
+#if 0
+            if (last_packet == true && (my_write_pos + output_size) == 0) {
+                /* Last packet and we still have no output, this is a faulty update */
+//                rc = BOOT_EFLASH;
+rc = -3;
+                goto finish;
+            }
+#endif
+
+            if (offset == 0) {
+//TODO: if this happens over and over, error, though only check in dry run
+                break;
+            }
+
+            /* Copy data to secondary buffer for writing out */
+            if (output_size > 0) {
+//hash data here
+bootutil_sha_update(&sha_ctx, output, output_size);
+            }
+
+            tmp_off += chunk_size;
+        }
+
+        pos += copy_size;
+    }
+
+    /* Clean up decompression system */
+    (void)compression->deinit(NULL);
+
+//finish hash here
+    bootutil_sha_finish(&sha_ctx, hash_result);
+    bootutil_sha_drop(&sha_ctx);
+
+BOOT_LOG_ERR("success?");
+finish:
+
+    return 0;
+}
+
 
 int boot_copy_region_decompress(struct boot_loader_state *state,
                  const struct flash_area *fap_src,

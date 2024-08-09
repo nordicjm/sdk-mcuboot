@@ -21,15 +21,17 @@ extern "C" {
 
 bool boot_is_compressed_header_valid(struct boot_loader_state *state, uint32_t size);
 
-int boot_copy_region_decompress(struct boot_loader_state *state,
-                 const struct flash_area *fap_src,
-                 const struct flash_area *fap_dst,
-                 uint32_t off_src, uint32_t off_dst, uint32_t sz, uint8_t *buf, size_t buf_size);
+int boot_copy_region_decompress(struct boot_loader_state *state, const struct flash_area *fap_src,
+                                const struct flash_area *fap_dst, uint32_t off_src,
+                                uint32_t off_dst, uint32_t sz, uint8_t *buf, size_t buf_size);
 
-int32_t bootutil_get_img_comp_size(struct image_header *hdr,
-                                   const struct flash_area *fap,
+int32_t bootutil_get_img_comp_size(struct image_header *hdr, const struct flash_area *fap,
                                    size_t *img_comp_size);
 
+int bootutil_img_hash_decompress(struct enc_key_data *enc_state, int image_index,
+                                 struct image_header *hdr, const struct flash_area *fap,
+                                 uint8_t *tmp_buf, uint32_t tmp_buf_sz, uint8_t *hash_result,
+                                 uint8_t *seed, int seed_len);
 
 #ifdef __cplusplus
 }

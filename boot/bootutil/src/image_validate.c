@@ -566,11 +566,18 @@ bootutil_img_validate(struct enc_key_data *enc_state, int image_index,
 
 #ifdef MCUBOOT_DECOMPRESS_IMAGES
     /* If the image is compressed, the integrity of the image must also be validated */
-    if (MUST_DECOMPRESS(fap, image_index, hdr)) {
-        bool found_compressed_size = false;
+//SIG_BUF_SIZE
+//IMAGE_HASH_SIZE
 
-        rc = bootutil_tlv_iter_begin(&it, hdr, fap, IMAGE_TLV_COMP_SIZE, true);
-//        rc = bootutil_tlv_iter_begin(&it, hdr, fap, IMAGE_TLV_COMP_SIZE, false);
+//IMAGE_TLV_COMP_SIZE
+//IMAGE_TLV_COMP_SHA
+//IMAGE_TLV_COMP_SIGNATURE
+    if (MUST_DECOMPRESS(fap, image_index, hdr)) {
+        bool found_decompressed_size = false;
+        bool found_decompressed_sha = false;
+        bool found_decompressed_signature = false;
+
+        rc = bootutil_tlv_iter_begin(&it, hdr, fap, IMAGE_TLV_ANY, true);
         if (rc) {
             goto out;
         }
@@ -580,7 +587,14 @@ bootutil_img_validate(struct enc_key_data *enc_state, int image_index,
             goto out;
         }
 
+//size_t decompressed_size;
+//uint8_t decompressed_hash;
+//uint8_t decompressed_hash;
+
         while (true) {
+            uint8_t expected_size = 0;
+            bool *found_flag = NULL;
+
             rc = bootutil_tlv_iter_next(&it, &off, &len, &type);
             if (rc < 0) {
                 goto out;
@@ -588,22 +602,46 @@ bootutil_img_validate(struct enc_key_data *enc_state, int image_index,
                 break;
             }
 
-            if (type == IMAGE_TLV_COMP_SIZE) {
-                if (len != sizeof(size_t)) {
-                    rc = -1;
-                    goto out;
-                }
+            switch (type) {
+            case IMAGE_TLV_COMP_SIZE:
+            {
+                expected_size = sizeof(size_t);
+                found_flag = &found_decompressed_size;
+                break;
+            }
+            case IMAGE_TLV_COMP_SHA:
+            {
+                expected_size = IMAGE_HASH_SIZE;
+                found_flag = &found_decompressed_sha;
+                break;
+            }
+            case IMAGE_TLV_COMP_SIGNATURE:
+            {
+                expected_size = SIG_BUF_SIZE;
+                found_flag = &found_decompressed_signature;
+                break;
+            }
+            default:
+            {
+                continue;
+            }
+            };
 
-                found_compressed_size = 1;
+            if (len != expected_size) {
+                rc = -1;
+                goto out;
             }
 
+            *found_flag = true;
         }
 
-        rc = !found_compressed_size;
+        rc = (!found_decompressed_size || !found_decompressed_sha || !found_decompressed_signature);
         if (rc) {
             goto out;
         }
 
+//TODO: redo this part
+#if 0
         rc = bootutil_img_hash(enc_state, image_index, hdr, fap, tmp_buf,
                 tmp_buf_sz, hash, seed, seed_len, false);
         if (rc) {
@@ -657,6 +695,8 @@ bootutil_img_validate(struct enc_key_data *enc_state, int image_index,
 
         image_hash_valid = 0;
     }
+
+#endif
 
 /*
     struct {

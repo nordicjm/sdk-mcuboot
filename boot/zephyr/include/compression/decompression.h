@@ -19,7 +19,7 @@
 extern "C" {
 #endif
 
-bool boot_is_compressed_header_valid(struct boot_loader_state *state, uint32_t size);
+bool boot_is_compressed_header_valid(struct boot_loader_state *state, const struct flash_area *fap, uint32_t size);
 
 int boot_copy_region_decompress(struct boot_loader_state *state, const struct flash_area *fap_src,
                                 const struct flash_area *fap_dst, uint32_t off_src,

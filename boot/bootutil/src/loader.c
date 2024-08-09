@@ -942,9 +942,9 @@ boot_is_header_valid(const struct image_header *hdr, const struct flash_area *fa
 #ifdef MCUBOOT_DECOMPRESS_IMAGES
 //    if (MUST_DECOMPRESS(fap, BOOT_CURR_IMG(state), hdr)) {
     if (1) {
-extern bool boot_is_compressed_header_valid(struct boot_loader_state *state, uint32_t size);
+extern bool boot_is_compressed_header_valid(struct boot_loader_state *state, const struct flash_area *fap, uint32_t size);
 
-bool valid = boot_is_compressed_header_valid(state, size);
+bool valid = boot_is_compressed_header_valid(state, fap, size);
 
 if (!valid) {
     return false;

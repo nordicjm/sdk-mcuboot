@@ -17,7 +17,7 @@ BOOT_LOG_MODULE_DECLARE(mcuboot);
 #define TARGET_STATIC
 #endif
 
-bool boot_is_compressed_header_valid(struct boot_loader_state *state, uint32_t size)
+bool boot_is_compressed_header_valid(struct boot_loader_state *state, const struct flash_area *fap, uint32_t size)
 {
     /* Image is compressed in secondary slot, need to check if fits into the primary slot */
     bool opened_flash_area = false;

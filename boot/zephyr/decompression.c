@@ -320,29 +320,38 @@ pos = sizeof(tlv_info_header);
         if (type == IMAGE_TLV_COMP_SIZE || type == IMAGE_TLV_COMP_SHA || type == IMAGE_TLV_COMP_SIGNATURE) {
             //Skip these TLVs as they are not needed
 LOG_ERR("skip type %d", type);
+continue;
         } else {
             uint32_t copy_done = 0;
-uint32_t copy_buffer_pos;
 
             tlv_header.it_type = type;
             tlv_header.it_len = len;
             memcpy(buf, &tlv_header, sizeof(tlv_header));
             tlv_size += sizeof(tlv_header) + len;
 
-copy_buffer_pos = sizeof(tlv_header);
+//header
+    rc = flash_area_write(fap_dst, (off_dst + pos), &tlv_header, sizeof(tlv_header));
+    if (rc != 0) {
+        rc = BOOT_EFLASH;
+goto out;
+    }
 
+pos += sizeof(tlv_header);
+
+//data
             while (copy_done < tlv_header.it_len) {
-                uint32_t copy_size = buf_size - copy_buffer_pos;
+                uint32_t copy_size = buf_size;
                 uint32_t write_size;
 
                 if ((copy_size + copy_done) > tlv_header.it_len) {
                     copy_size = tlv_header.it_len - copy_done;
                 }
 
-                write_size = copy_size;
-                rc = LOAD_IMAGE_DATA(hdr, fap_src, (off + copy_done), &buf[copy_buffer_pos], copy_size);
+                rc = LOAD_IMAGE_DATA(hdr, fap_src, (off + copy_done), buf, copy_size);
+LOG_HEXDUMP_ERR(buf, copy_size, "teh dat");
 
 //deal with minimum write size here
+write_size = copy_size;
 
                 if ((copy_size % 4) != 0) {
                     uint8_t padding = 4 - (copy_size % 4);
@@ -359,10 +368,9 @@ LOG_ERR("write1 %d to %d", write_size, (off_dst + pos));
 goto out;
     }
 
-LOG_ERR("tlv type %d, len %d, copy size %d, copy_buffer_pos %d, tlv size %d, write_size %d, write address %d", type, len, copy_size, copy_buffer_pos, tlv_size, write_size, (off_dst + pos));
+LOG_ERR("tlv type %d, len %d, copy size %d, tlv size %d, write_size %d, write address %d", type, len, copy_size, tlv_size, write_size, (off_dst + pos));
 
                 copy_done += copy_size;
-                copy_buffer_pos = 0;
                 pos += copy_size;
             }
 /* */

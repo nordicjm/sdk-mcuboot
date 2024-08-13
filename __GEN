@@ -1,3 +1,10 @@
 /tmp/sdk-nrf-xz/src/xz/xz -z -9 --lzma2=preset=9,dict=131072,lc=3,lp=1 --format=lzma zephyr_lzma.bin
 imgtool sign --version 0.0.0+0 --align 4 --slot-size 0x78000 --pad-header --header-size 0x200 -k /tmp/bb/bootloader/mcuboot/root-rsa-2048.pem --custom-tlv 0x18 lolwhat --custom-tlv 0x70 0x00001234  zephyr_lzma.bin zephyr_lzma.bin.signed.bin
 imgtool sign --version 0.0.0+0 --align 4 --slot-size 0x78000 --pad-header --header-size 0x200 -k /tmp/bb/bootloader/mcuboot/root-rsa-2048.pem --custom-tlv 0x91 0x2488 zephyr/zephyr.bin zephyr/zephyr.signed.bin
+
+
+nrfjprog -f NRF53 --readcode data.hex
+objcopy -I ihex -O binary data.hex data.bin
+bless data.bin
+# 0xc000 to 0x74000
+imgtool dumpinfo data.bin

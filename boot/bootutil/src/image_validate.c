@@ -502,62 +502,6 @@ bootutil_img_validate(struct enc_key_data *enc_state, int image_index,
         if (rc) {
             goto out;
         }
-
-//TODO: redo this part
-#if 0
-        rc = bootutil_img_hash(enc_state, image_index, hdr, fap, tmp_buf,
-                tmp_buf_sz, hash, seed, seed_len, false);
-        if (rc) {
-            goto out;
-        }
-
-        rc = bootutil_tlv_iter_begin(&it, hdr, fap, IMAGE_TLV_RAW_SLOT_SHA256, true);
-//        rc = bootutil_tlv_iter_begin(&it, hdr, fap, IMAGE_TLV_RAW_SLOT_SHA256, false);
-        if (rc) {
-            goto out;
-        }
-
-        if (it.tlv_end > bootutil_max_image_size(fap)) {
-            rc = -1;
-            goto out;
-        }
-
-        while (true) {
-            rc = bootutil_tlv_iter_next(&it, &off, &len, &type);
-            if (rc < 0) {
-                goto out;
-            } else if (rc > 0) {
-                break;
-            }
-
-            if (type == IMAGE_TLV_RAW_SLOT_SHA256) {
-                /* Verify the image hash. This must always be present. */
-                if (len != sizeof(hash)) {
-                    rc = -1;
-                    goto out;
-                }
-                rc = LOAD_IMAGE_DATA(hdr, fap, off, buf, sizeof(hash));
-                if (rc) {
-                    goto out;
-                }
-
-                FIH_CALL(boot_fih_memequal, fih_rc, hash, buf, sizeof(hash));
-                if (FIH_NOT_EQ(fih_rc, FIH_SUCCESS)) {
-                    FIH_SET(fih_rc, FIH_FAILURE);
-                    goto out;
-                }
-
-                image_hash_valid = 1;
-            }
-        }
-
-        rc = !image_hash_valid;
-        if (rc) {
-            goto out;
-        }
-
-        image_hash_valid = 0;
-#endif
     }
 
 
@@ -743,6 +687,156 @@ bootutil_img_validate(struct enc_key_data *enc_state, int image_index,
         rc = -1;
         goto out;
     }
+#endif
+
+#ifdef MCUBOOT_DECOMPRESS_IMAGES
+    /* Only after all previous verifications have passed, perform a dry-run of the decompression and ensure the image is valid */
+    if (!rc && MUST_DECOMPRESS(fap, image_index, hdr)) {
+        image_hash_valid = 0;
+        FIH_SET(valid_signature, FIH_FAILURE);
+
+        rc = bootutil_img_hash_decompress(enc_state, image_index, hdr, fap, tmp_buf,
+                tmp_buf_sz, hash, seed, seed_len);
+        if (rc) {
+            goto out;
+        }
+
+        rc = bootutil_tlv_iter_begin(&it, hdr, fap, IMAGE_TLV_COMP_SHA, true);
+        if (rc) {
+            goto out;
+        }
+
+        if (it.tlv_end > bootutil_max_image_size(fap)) {
+            rc = -1;
+            goto out;
+        }
+
+        while (true) {
+            rc = bootutil_tlv_iter_next(&it, &off, &len, &type);
+            if (rc < 0) {
+                goto out;
+            } else if (rc > 0) {
+                break;
+            }
+
+            if (type == IMAGE_TLV_COMP_SHA) {
+                /* Verify the image hash. This must always be present. */
+                if (len != sizeof(hash)) {
+                    rc = -1;
+                    goto out;
+                }
+                rc = LOAD_IMAGE_DATA(hdr, fap, off, buf, sizeof(hash));
+                if (rc) {
+                    goto out;
+                }
+
+                FIH_CALL(boot_fih_memequal, fih_rc, hash, buf, sizeof(hash));
+                if (FIH_NOT_EQ(fih_rc, FIH_SUCCESS)) {
+                    FIH_SET(fih_rc, FIH_FAILURE);
+                    goto out;
+                }
+
+                image_hash_valid = 1;
+            }
+        }
+
+        rc = !image_hash_valid;
+        if (rc) {
+            goto out;
+        }
+
+#ifdef EXPECTED_SIG_TLV
+#ifdef EXPECTED_KEY_TLV
+        rc = bootutil_tlv_iter_begin(&it, hdr, fap, EXPECTED_KEY_TLV, false);
+        if (rc) {
+            goto out;
+        }
+
+        if (it.tlv_end > bootutil_max_image_size(fap)) {
+            rc = -1;
+            goto out;
+        }
+
+        while (true) {
+            rc = bootutil_tlv_iter_next(&it, &off, &len, &type);
+            if (rc < 0) {
+                goto out;
+            } else if (rc > 0) {
+                break;
+            }
+
+            if (type == EXPECTED_KEY_TLV) {
+                /*
+                 * Determine which key we should be checking.
+                 */
+                if (len > KEY_BUF_SIZE) {
+                    rc = -1;
+                    goto out;
+                 }
+#ifndef MCUBOOT_HW_KEY
+                rc = LOAD_IMAGE_DATA(hdr, fap, off, buf, len);
+                if (rc) {
+                    goto out;
+                }
+                key_id = bootutil_find_key(buf, len);
+#else
+                rc = LOAD_IMAGE_DATA(hdr, fap, off, key_buf, len);
+                if (rc) {
+                    goto out;
+                }
+                key_id = bootutil_find_key(image_index, key_buf, len);
+#endif /* !MCUBOOT_HW_KEY */
+                /*
+                 * The key may not be found, which is acceptable.  There
+                 * can be multiple signatures, each preceded by a key.
+                 */
+            }
+        }
+#endif /* EXPECTED_KEY_TLV */
+
+        rc = bootutil_tlv_iter_begin(&it, hdr, fap, IMAGE_TLV_COMP_SIGNATURE, true);
+        if (rc) {
+            goto out;
+        }
+
+        if (it.tlv_end > bootutil_max_image_size(fap)) {
+            rc = -1;
+            goto out;
+        }
+
+        while (true) {
+            rc = bootutil_tlv_iter_next(&it, &off, &len, &type);
+            if (rc < 0) {
+                goto out;
+            } else if (rc > 0) {
+                break;
+            }
+
+            if (type == IMAGE_TLV_COMP_SIGNATURE) {
+                /* Ignore this signature if it is out of bounds. */
+                if (key_id < 0 || key_id >= bootutil_key_cnt) {
+                    key_id = -1;
+                    continue;
+                }
+                if (!EXPECTED_SIG_LEN(len) || len > sizeof(buf)) {
+                    rc = -1;
+                    goto out;
+                }
+                rc = LOAD_IMAGE_DATA(hdr, fap, off, buf, len);
+                if (rc) {
+                    goto out;
+                }
+                FIH_CALL(bootutil_verify_sig, valid_signature, hash, sizeof(hash),
+                                                               buf, len, key_id);
+                key_id = -1;
+            }
+        }
+#endif /* EXPECTED_SIG_TLV */
+    }
+#endif
+
+#ifdef EXPECTED_SIG_TLV
+    FIH_SET(fih_rc, valid_signature);
 #endif
 
 out:

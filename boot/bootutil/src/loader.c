@@ -153,8 +153,7 @@ BOOT_LOG_ERR("check %d = %d", i, rc);
         }
 #ifdef MCUBOOT_DECOMPRESS_IMAGES
         /* Check if this is a compressed imaege in secondary slot, if so, load the compressed image size */
-//        if (i == 1 && area_id == FLASH_AREA_IMAGE_SECONDARY(BOOT_CURR_IMG(state)) && IS_COMPRESSED(boot_img_hdr(state, i))) {
-        if (i == 1 && area_id == FLASH_AREA_IMAGE_SECONDARY(BOOT_CURR_IMG(state))) {
+        if (i == 1 && area_id == FLASH_AREA_IMAGE_SECONDARY(BOOT_CURR_IMG(state)) && IS_COMPRESSED(boot_img_hdr(state, i))) {
             size_t image_compressed_size = 0;
             const struct flash_area *fap;
 
@@ -940,10 +939,7 @@ boot_is_header_valid(const struct image_header *hdr, const struct flash_area *fa
     }
 
 #ifdef MCUBOOT_DECOMPRESS_IMAGES
-//    if (MUST_DECOMPRESS(fap, BOOT_CURR_IMG(state), hdr)) {
-    if (1) {
-extern bool boot_is_compressed_header_valid(struct boot_loader_state *state, const struct flash_area *fap, uint32_t size);
-
+    if (MUST_DECOMPRESS(fap, BOOT_CURR_IMG(state), hdr)) {
 bool valid = boot_is_compressed_header_valid(state, fap, size);
 
 if (!valid) {
@@ -1568,8 +1564,7 @@ boot_copy_region(struct boot_loader_state *state,
 #ifdef MCUBOOT_DECOMPRESS_IMAGES
     hdr = boot_img_hdr(state, BOOT_SECONDARY_SLOT);
 
-//    if (MUST_DECOMPRESS(fap_src, BOOT_CURR_IMG(state), hdr)) {
-    if (1) {
+    if (MUST_DECOMPRESS(fap_src, BOOT_CURR_IMG(state), hdr)) {
         /* Use alternative function for compressed images */
         return boot_copy_region_decompress(state, fap_src, fap_dst, off_src, off_dst, sz, buf, BUF_SZ);
     }

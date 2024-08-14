@@ -128,7 +128,6 @@ boot_read_image_headers(struct boot_loader_state *state, bool require_all,
         {
             rc = boot_read_image_header(state, i, boot_img_hdr(state, i), bs);
         }
-BOOT_LOG_ERR("check %d = %d", i, rc);
         if (rc != 0) {
             /* If `require_all` is set, fail on any single fail, otherwise
              * if at least the first slot's header was read successfully,
@@ -1122,7 +1121,7 @@ boot_validate_slot(struct boot_loader_state *state, int slot,
     }
     if (!boot_is_header_valid(hdr, fap, state) || FIH_NOT_EQ(fih_rc, FIH_SUCCESS)) {
         if ((slot != BOOT_PRIMARY_SLOT) || ARE_SLOTS_EQUIVALENT()) {
-//            flash_area_erase(fap, 0, flash_area_get_size(fap));
+            flash_area_erase(fap, 0, flash_area_get_size(fap));
             /* Image is invalid, erase it to prevent further unnecessary
              * attempts to validate and boot it.
              */
@@ -1132,9 +1131,8 @@ boot_validate_slot(struct boot_loader_state *state, int slot,
         BOOT_LOG_ERR("Image in the %s slot is not valid!",
                      (slot == BOOT_PRIMARY_SLOT) ? "primary" : "secondary");
 #endif
-        fih_rc = FIH_SUCCESS;
-//        fih_rc = FIH_NO_BOOTABLE_IMAGE;
-//        goto out;
+        fih_rc = FIH_NO_BOOTABLE_IMAGE;
+        goto out;
     }
 
 #if MCUBOOT_IMAGE_NUMBER > 1 && !defined(MCUBOOT_ENC_IMAGES) && defined(MCUBOOT_VERIFY_IMG_ADDRESS)
@@ -2170,7 +2168,6 @@ boot_prepare_image_for_update(struct boot_loader_state *state,
     int rc;
     FIH_DECLARE(fih_rc, FIH_FAILURE);
 
-BOOT_LOG_ERR("boot_prepare_image_for_update 1");
     /* Determine the sector layout of the image slots and scratch area. */
     rc = boot_read_sectors(state);
     if (rc != 0) {
@@ -2187,7 +2184,6 @@ BOOT_LOG_ERR("boot_prepare_image_for_update 1");
         }
     }
 
-BOOT_LOG_ERR("boot_prepare_image_for_update 2");
     /* Attempt to read an image header from each slot. */
     rc = boot_read_image_headers(state, false, NULL);
     if (rc != 0) {
@@ -2198,7 +2194,6 @@ BOOT_LOG_ERR("boot_prepare_image_for_update 2");
         return;
     }
 
-BOOT_LOG_ERR("boot_prepare_image_for_update 3");
     /* If the current image's slots aren't compatible, no swap is possible.
      * Just boot into primary slot.
      */

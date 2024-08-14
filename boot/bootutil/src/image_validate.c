@@ -49,7 +49,6 @@
 
 BOOT_LOG_MODULE_DECLARE(mcuboot);
 
-
 #ifdef MCUBOOT_ENC_IMAGES
 #include "bootutil/enc_key.h"
 #endif
@@ -566,7 +565,6 @@ bootutil_img_validate(struct enc_key_data *enc_state, int image_index,
 #endif
 
         if (type == EXPECTED_HASH_TLV) {
-LOG_ERR("_DOIT1");
                 /* Verify the image hash. This must always be present. */
                 if (len != sizeof(hash)) {
                     rc = -1;
@@ -586,7 +584,6 @@ LOG_ERR("_DOIT1");
                 image_hash_valid = 1;
 #ifdef EXPECTED_KEY_TLV
         } else if (type == EXPECTED_KEY_TLV) {
-LOG_ERR("_DOIT2");
             /*
              * Determine which key we should be checking.
              */
@@ -614,7 +611,6 @@ LOG_ERR("_DOIT2");
 #endif /* EXPECTED_KEY_TLV */
 #ifdef EXPECTED_SIG_TLV
         } else if (type == EXPECTED_SIG_TLV) {
-LOG_ERR("_DOIT3");
             /* Ignore this signature if it is out of bounds. */
             if (key_id < 0 || key_id >= bootutil_key_cnt) {
                 key_id = -1;
@@ -688,7 +684,6 @@ LOG_ERR("_DOIT3");
 
 #ifdef MCUBOOT_DECOMPRESS_IMAGES
     /* Only after all previous verifications have passed, perform a dry-run of the decompression and ensure the image is valid */
-LOG_ERR("we at point, rc: %d, must decompress: %d", rc, MUST_DECOMPRESS(fap, image_index, hdr));
     if (!rc && MUST_DECOMPRESS(fap, image_index, hdr)) {
         image_hash_valid = 0;
         FIH_SET(valid_signature, FIH_FAILURE);
@@ -699,7 +694,6 @@ LOG_ERR("we at point, rc: %d, must decompress: %d", rc, MUST_DECOMPRESS(fap, ima
             goto out;
         }
 
-LOG_ERR("do find");
         rc = bootutil_tlv_iter_begin(&it, hdr, fap, IMAGE_TLV_COMP_SHA, true);
         if (rc) {
             goto out;
@@ -729,14 +723,12 @@ LOG_ERR("do find");
                     goto out;
                 }
 
-LOG_ERR("do check");
                 FIH_CALL(boot_fih_memequal, fih_rc, hash, buf, sizeof(hash));
                 if (FIH_NOT_EQ(fih_rc, FIH_SUCCESS)) {
                     FIH_SET(fih_rc, FIH_FAILURE);
                     goto out;
                 }
 
-LOG_ERR("we match");
                 image_hash_valid = 1;
             }
         }
@@ -795,7 +787,6 @@ LOG_ERR("we match");
         }
 #endif /* EXPECTED_KEY_TLV */
 
-LOG_ERR("our key id: %d", key_id);
         rc = bootutil_tlv_iter_begin(&it, hdr, fap, IMAGE_TLV_COMP_SIGNATURE, true);
         if (rc) {
             goto out;

@@ -307,6 +307,7 @@ static int boot_copy_protected_tlvs(struct image_header *hdr, const struct flash
         if (rc < 0) {
             goto out;
         } else if (rc > 0) {
+            rc = 0;
             break;
         }
 
@@ -334,6 +335,7 @@ LOG_ERR("skip type %d", type);
     }
 
 /* TODO unaligned writes */
+LOG_ERR("protected tlv write to 0x%x of size %d", off_dst, buf_pos);
     rc = flash_area_write(fap_dst, off_dst, buf, buf_pos);
     if (rc != 0) {
         rc = BOOT_EFLASH;
@@ -370,16 +372,19 @@ static int boot_size_protected_tlvs(struct image_header *hdr, const struct flash
         if (rc < 0) {
             goto out;
         } else if (rc > 0) {
+            rc = 0;
             break;
         }
 
         if (type == IMAGE_TLV_COMP_SIZE || type == IMAGE_TLV_COMP_SHA || type == IMAGE_TLV_COMP_SIGNATURE) {
             /* Exclude these TLVs as they will be copied to the unprotected area */
             tlv_size -= len + sizeof(struct image_tlv);
+LOG_ERR("exclude %d of size %d = %d", type, (len + sizeof(struct image_tlv)), tlv_size);
         }
     }
 
     if (!rc) {
+LOG_ERR("size here is %d", tlv_size);
         if (tlv_size == sizeof(struct image_tlv_info)) {
             /* If there are no entries then omit protected TLV section entirely */
             tlv_size = 0;
@@ -389,6 +394,7 @@ static int boot_size_protected_tlvs(struct image_header *hdr, const struct flash
     }
 
 out:
+LOG_ERR("but rc be %d", rc);
     return rc;
 }
 
@@ -416,12 +422,12 @@ static int boot_copy_unprotected_tlvs(struct image_header *hdr, const struct fla
     uint16_t len;
     uint16_t type;
     struct image_tlv_iter it;
+    struct image_tlv_iter it2;
     struct image_tlv tlv_header;
     struct image_tlv_info tlv_info_header = {
         .it_magic = IMAGE_TLV_INFO_MAGIC,
     };
 
-    memcpy(buf, &tlv_info_header, sizeof(tlv_info_header));
     buf_pos = sizeof(tlv_info_header);
 
     rc = bootutil_tlv_iter_begin(&it, hdr, fap_src, IMAGE_TLV_ANY, false);
@@ -434,24 +440,41 @@ static int boot_copy_unprotected_tlvs(struct image_header *hdr, const struct fla
         if (rc < 0) {
             goto out;
         } else if (rc > 0) {
+            rc = 0;
             break;
         }
 
-        /* Skip protected TLVs unless they are the ones we want */
+        /* Skip protected TLVs */
         rc = bootutil_tlv_iter_is_prot(&it, off);
 
-        if (rc && type != IMAGE_TLV_COMP_SHA && type != IMAGE_TLV_COMP_SIGNATURE) {
+        if (rc) {
             continue;
         }
 
         /* Change the types of these fields */
-        if (type == IMAGE_TLV_COMP_SHA) {
+        if (type == IMAGE_TLV_SHA256 || type == EXPECTED_SIG_TLV) {
 //TODO: sha384?
-            tlv_header.it_type = IMAGE_TLV_SHA256;
-        } else if (type == IMAGE_TLV_COMP_SIGNATURE) {
-            tlv_header.it_type = EXPECTED_SIG_TLV;
-        } else {
-            tlv_header.it_type = type;
+            rc = bootutil_tlv_iter_begin(&it2, hdr, fap_src, (type == IMAGE_TLV_SHA256 ? IMAGE_TLV_COMP_SHA : IMAGE_TLV_COMP_SIGNATURE), true);
+
+            if (rc) {
+                goto out;
+            }
+
+            while (true) {
+                rc = bootutil_tlv_iter_next(&it2, &off, &len, &type);
+                if (rc < 0) {
+                    goto out;
+                } else if (rc > 0) {
+                    rc = 0;
+                    break;
+                }
+            }
+
+            if (type == IMAGE_TLV_COMP_SHA) {
+                type = IMAGE_TLV_SHA256;
+            } else {
+                type = EXPECTED_SIG_TLV;
+            }
         }
 
 if ((buf_pos + len + sizeof(tlv_header)) >= buf_size) {
@@ -460,6 +483,7 @@ rc = 4;
 goto out;
 }
 
+        tlv_header.it_type = type;
         tlv_header.it_len = len;
         memcpy(&buf[buf_pos], &tlv_header, sizeof(tlv_header));
         buf_pos += sizeof(tlv_header);
@@ -470,6 +494,7 @@ goto out;
 
 //TODO: update size
 tlv_info_header.it_tlv_tot = buf_pos;
+memcpy(buf, &tlv_info_header, sizeof(tlv_info_header));
 
 /* Apply padding if needed... TODO */
     if ((buf_pos % 4) != 0) {
@@ -480,6 +505,7 @@ tlv_info_header.it_tlv_tot = buf_pos;
     }
 
 /* TODO unaligned writes */
+LOG_ERR("unprotected tlv write to 0x%x of size %d", off_dst, buf_pos);
     rc = flash_area_write(fap_dst, off_dst, buf, buf_pos);
     if (rc != 0) {
         rc = BOOT_EFLASH;
@@ -579,6 +605,7 @@ rc = boot_size_protected_tlvs(hdr, fap_src, off_src, &protected_tlv_size);
 
 //pos += sizeof(modified_hdr);
 
+LOG_ERR("protected tlv size: %d", protected_tlv_size);
 if (protected_tlv_size > 0) {
     if (protected_tlv_size > buf_size) {
         /* TLVs too large to be copied */
@@ -586,6 +613,8 @@ if (protected_tlv_size > 0) {
         goto finish;
     }
 
+
+LOG_ERR("protected tlvs to : 0x%x", (off_dst + hdr->ih_hdr_size + decompressed_image_size));
     rc = boot_copy_protected_tlvs(hdr, fap_src, fap_dst, (off_dst + hdr->ih_hdr_size + decompressed_image_size), protected_tlv_size, buf, buf_size);
 
     if (rc) {
@@ -593,6 +622,7 @@ if (protected_tlv_size > 0) {
     }
 }
 
+LOG_ERR("unprotected tlvs to : 0x%x", (off_dst + hdr->ih_hdr_size + decompressed_image_size + protected_tlv_size));
 rc = boot_copy_unprotected_tlvs(hdr, fap_src, fap_dst, (off_dst + hdr->ih_hdr_size + decompressed_image_size + protected_tlv_size), buf, buf_size);
 
 if (rc) {
@@ -610,7 +640,7 @@ if (rc) {
 
 BOOT_LOG_ERR("read from 0x%x for %d", (off_src + pos), copy_size);
         rc = flash_area_read(fap_src, off_src + pos, buf, copy_size);
-LOG_HEXDUMP_ERR(buf, copy_size, "read");
+//LOG_HEXDUMP_ERR(buf, copy_size, "read");
 
         if (rc != 0) {
             rc = BOOT_EFLASH;
@@ -718,7 +748,7 @@ BOOT_LOG_ERR("data size = %d", data_size);
                 /* Write data out from secondary buffer when it is full */
                 if (second_buf_size == sizeof(second_buf)) {
 BOOT_LOG_ERR("write to 0x%x", (off_dst + hdr->ih_hdr_size + my_write_pos));
-LOG_HEXDUMP_ERR(second_buf, sizeof(second_buf), "write");
+//LOG_HEXDUMP_ERR(second_buf, sizeof(second_buf), "write");
 
 
 #ifdef MCUBOOT_ENC_IMAGES
@@ -762,7 +792,7 @@ LOG_HEXDUMP_ERR(second_buf, sizeof(second_buf), "write");
         }
 
 BOOT_LOG_ERR("write to 0x%x for %d", (off_dst + hdr->ih_hdr_size + my_write_pos), second_buf_size);
-LOG_HEXDUMP_ERR(second_buf, second_buf_size, "write");
+//LOG_HEXDUMP_ERR(second_buf, second_buf_size, "write");
         rc = flash_area_write(fap_dst, (off_dst + hdr->ih_hdr_size + my_write_pos), second_buf, second_buf_size);
 
         if (rc != 0) {
@@ -808,7 +838,7 @@ BOOT_LOG_ERR("read from 0x%x for %d", (off_src + hdr->ih_hdr_size + hdr->ih_img_
             memset(&buf[copy_size], 0xff, write_padding_size);
         }
 BOOT_LOG_ERR("write to 0x%x for %d", (off_dst + hdr->ih_hdr_size + my_write_pos + pos), copy_size);
-LOG_HEXDUMP_ERR(buf, copy_size, "write");
+//LOG_HEXDUMP_ERR(buf, copy_size, "write");
         rc = flash_area_write(fap_dst, (off_dst + hdr->ih_hdr_size + modified_hdr->ih_protect_tlv_size + my_write_pos + pos), buf, (copy_size + write_padding_size));
 
         if (rc) {

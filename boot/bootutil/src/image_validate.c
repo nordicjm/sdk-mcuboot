@@ -811,6 +811,7 @@ LOG_ERR("our key id: %d", key_id);
             if (rc < 0) {
                 goto out;
             } else if (rc > 0) {
+                rc = 0;
                 break;
             }
 
@@ -820,7 +821,7 @@ LOG_ERR("our key id: %d", key_id);
                     key_id = -1;
                     continue;
                 }
-LOG_ERR("we find1");
+
                 if (!EXPECTED_SIG_LEN(len) || len > sizeof(buf)) {
                     rc = -1;
                     goto out;
@@ -829,10 +830,9 @@ LOG_ERR("we find1");
                 if (rc) {
                     goto out;
                 }
-LOG_ERR("we check1");
+
                 FIH_CALL(bootutil_verify_sig, valid_signature, hash, sizeof(hash),
                                                                buf, len, key_id);
-LOG_ERR("valid %d", valid_signature);
                 key_id = -1;
             }
         }

@@ -56,7 +56,7 @@ int bootutil_img_hash_decompress(struct enc_key_data *enc_state, int image_index
 {
 //TODO
 bootutil_sha_context sha_ctx;
-struct image_header modified_hdr;
+TARGET_STATIC struct image_header modified_hdr;
     int rc;
     uint32_t pos = 0;
     struct nrf_compress_implementation *compression = NULL;
@@ -404,6 +404,52 @@ LOG_ERR("uh oh %d", rc);
     return 0;
 }
 
+// *sz will be updated with length of new section
+static int boot_size_protected_tlvs(struct image_header *hdr, const struct flash_area *fap_src, uint32_t off_src, uint32_t *sz)
+{
+    int rc = 0;
+    uint32_t tlv_size;
+    uint32_t off;
+    uint16_t len;
+    uint16_t type;
+    struct image_tlv_iter it;
+
+    *sz = 0;
+    tlv_size = hdr->ih_protect_tlv_size;
+
+    rc = bootutil_tlv_iter_begin(&it, hdr, fap_src, IMAGE_TLV_ANY, true);
+    if (rc) {
+        goto out;
+    }
+
+    while (true) {
+        rc = bootutil_tlv_iter_next(&it, &off, &len, &type);
+        if (rc < 0) {
+            goto out;
+        } else if (rc > 0) {
+            break;
+        }
+
+        if (type == IMAGE_TLV_COMP_SIZE || type == IMAGE_TLV_COMP_SHA || type == IMAGE_TLV_COMP_SIGNATURE) {
+            /* Exclude these TLVs as they will be copied to the unprotected area */
+            tlv_size -= len + sizeof(struct image_tlv);
+        }
+    }
+
+    if (!rc) {
+        if (tlv_size == sizeof(struct image_tlv_info)) {
+            /* If there are no entries then omit protected TLV section entirely */
+            tlv_size = 0;
+        }
+
+        *sz = tlv_size;
+    }
+
+out:
+    return rc;
+}
+
+
 #if defined(MCUBOOT_SIGN_RSA)
 #if MCUBOOT_SIGN_RSA_LEN == 2048
 #define EXPECTED_SIG_TLV IMAGE_TLV_RSA2048_PSS
@@ -638,25 +684,39 @@ rc = 4;
 
 uint32_t protected_tlv_size = 0;
 uint32_t unprotected_tlv_size = 0;
-rc = boot_copy_protected_tlvs(hdr, fap_src, fap_dst, off_src, (off_dst + hdr->ih_hdr_size + 0x5a64), &protected_tlv_size, buf, buf_size);
-rc = boot_copy_unprotected_tlvs(hdr, fap_src, fap_dst, off_src, (off_dst + hdr->ih_hdr_size + 0x5a64 + protected_tlv_size), &unprotected_tlv_size, buf, buf_size);
+TARGET_STATIC struct image_header modified_hdr;
 
-//hack
-uint32_t orig_size = hdr->ih_img_size;
-uint32_t orig_tlv_offset = hdr->ih_protect_tlv_size;
-hdr->ih_protect_tlv_size = protected_tlv_size;
-hdr->ih_flags = 0;
-hdr->ih_img_size = 0x5a64; //get from tlv
+    memcpy(&modified_hdr, hdr, sizeof(modified_hdr));
+
+size_t decompressed_image_size;
+rc = bootutil_get_img_comp_size(hdr, fap_src, &decompressed_image_size);
+
+if (rc) {
+rc = 4;
+goto finish;
+}
+
+    modified_hdr.ih_flags &= ~COMPRESSIONFLAGS;
+    modified_hdr.ih_img_size = decompressed_image_size;
+
+//Calculate protecred TLV size
+rc = boot_size_protected_tlvs(hdr, fap_src, off_src, &protected_tlv_size);
+    modified_hdr.ih_protect_tlv_size = protected_tlv_size;
 
 //header?
-        rc = flash_area_write(fap_dst, off_dst + pos, hdr, sizeof(*hdr));
+        rc = flash_area_write(fap_dst, off_dst + pos, &modified_hdr, sizeof(modified_hdr));
 
         if (rc != 0) {
             rc = BOOT_EFLASH;
             goto finish;
         }
 
-pos += sizeof(*hdr);
+//pos += sizeof(modified_hdr);
+
+if (protected_tlv_size > 0) {
+    rc = boot_copy_protected_tlvs(hdr, fap_src, fap_dst, off_src, (off_dst + hdr->ih_hdr_size + decompressed_image_size), &protected_tlv_size, buf, buf_size);
+}
+rc = boot_copy_unprotected_tlvs(hdr, fap_src, fap_dst, off_src, (off_dst + hdr->ih_hdr_size + decompressed_image_size + protected_tlv_size), &unprotected_tlv_size, buf, buf_size);
 
 #if 0
     /* Copy image header */
@@ -694,8 +754,8 @@ BOOT_LOG_ERR("write to 0x%x for %d", (off_dst + pos), copy_size);
     /* Read in and write compressed data */
     pos = 0;
 
-    while (pos < orig_size) {
-        uint32_t copy_size = orig_size - pos;
+    while (pos < hdr->ih_img_size) {
+        uint32_t copy_size = hdr->ih_img_size - pos;
         uint32_t tmp_off = 0;
 
         if (copy_size > buf_size) {
@@ -731,8 +791,8 @@ uint32_t chunk_size;
 
 BOOT_LOG_ERR("bytes needed: %d", chunk_size);
 
-BOOT_LOG_ERR("LAST? pos: %d, tmp_off: %d, chunk %d, compare: %d, img_size: %d", pos, tmp_off, chunk_size, (pos + tmp_off + chunk_size), orig_size);
-            if ((pos + tmp_off + chunk_size) >= orig_size) {
+BOOT_LOG_ERR("LAST? pos: %d, tmp_off: %d, chunk %d, compare: %d, img_size: %d", pos, tmp_off, chunk_size, (pos + tmp_off + chunk_size), hdr->ih_img_size);
+            if ((pos + tmp_off + chunk_size) >= hdr->ih_img_size) {
                 last_packet = true;
             }
 
@@ -841,7 +901,7 @@ LOG_HEXDUMP_ERR(second_buf, second_buf_size, "write");
 BOOT_LOG_ERR("footer... 0x%x of 0x%x", pos, sz);
     pos = 0;
 //WHY IS THERE A 2 DISCREPENCY??
-uint32_t left = sz - hdr->ih_hdr_size - orig_size;// - 2;
+uint32_t left = sz - hdr->ih_hdr_size - hdr->ih_img_size;// - 2;
 
     while (pos < left) {
         uint32_t copy_size = left - pos;
@@ -852,8 +912,8 @@ uint32_t left = sz - hdr->ih_hdr_size - orig_size;// - 2;
         }
 
         /* Read position and write position offsets diverge */
-BOOT_LOG_ERR("read from 0x%x for %d", (off_src + hdr->ih_hdr_size + orig_size + orig_tlv_offset + pos), copy_size);
-        rc = flash_area_read(fap_src, (off_src + hdr->ih_hdr_size + orig_size + orig_tlv_offset + pos), buf, copy_size);
+BOOT_LOG_ERR("read from 0x%x for %d", (off_src + hdr->ih_hdr_size + hdr->ih_img_size + hdr->ih_protect_tlv_size + pos), copy_size);
+        rc = flash_area_read(fap_src, (off_src + hdr->ih_hdr_size + hdr->ih_img_size + hdr->ih_protect_tlv_size + pos), buf, copy_size);
 
         if (rc) {
             rc = BOOT_EFLASH;
@@ -868,7 +928,7 @@ BOOT_LOG_ERR("read from 0x%x for %d", (off_src + hdr->ih_hdr_size + orig_size + 
         }
 BOOT_LOG_ERR("write to 0x%x for %d", (off_dst + hdr->ih_hdr_size + my_write_pos + pos), copy_size);
 LOG_HEXDUMP_ERR(buf, copy_size, "write");
-        rc = flash_area_write(fap_dst, (off_dst + hdr->ih_hdr_size + hdr->ih_protect_tlv_size + my_write_pos + pos), buf, (copy_size + write_padding_size));
+        rc = flash_area_write(fap_dst, (off_dst + hdr->ih_hdr_size + modified_hdr->ih_protect_tlv_size + my_write_pos + pos), buf, (copy_size + write_padding_size));
 
         if (rc) {
             rc = BOOT_EFLASH;

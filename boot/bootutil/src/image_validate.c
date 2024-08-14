@@ -566,9 +566,7 @@ bootutil_img_validate(struct enc_key_data *enc_state, int image_index,
 #endif
 
         if (type == EXPECTED_HASH_TLV) {
-#ifdef MCUBOOT_DECOMPRESS_IMAGES
-            if (!MUST_DECOMPRESS(fap, image_index, hdr)) {
-#endif
+LOG_ERR("_DOIT1");
                 /* Verify the image hash. This must always be present. */
                 if (len != sizeof(hash)) {
                     rc = -1;
@@ -586,11 +584,9 @@ bootutil_img_validate(struct enc_key_data *enc_state, int image_index,
                 }
 
                 image_hash_valid = 1;
-#ifdef MCUBOOT_DECOMPRESS_IMAGES
-            }
-#endif
 #ifdef EXPECTED_KEY_TLV
         } else if (type == EXPECTED_KEY_TLV) {
+LOG_ERR("_DOIT2");
             /*
              * Determine which key we should be checking.
              */
@@ -618,6 +614,7 @@ bootutil_img_validate(struct enc_key_data *enc_state, int image_index,
 #endif /* EXPECTED_KEY_TLV */
 #ifdef EXPECTED_SIG_TLV
         } else if (type == EXPECTED_SIG_TLV) {
+LOG_ERR("_DOIT3");
             /* Ignore this signature if it is out of bounds. */
             if (key_id < 0 || key_id >= bootutil_key_cnt) {
                 key_id = -1;
@@ -691,6 +688,7 @@ bootutil_img_validate(struct enc_key_data *enc_state, int image_index,
 
 #ifdef MCUBOOT_DECOMPRESS_IMAGES
     /* Only after all previous verifications have passed, perform a dry-run of the decompression and ensure the image is valid */
+LOG_ERR("we at point, rc: %d, must decompress: %d", rc, MUST_DECOMPRESS(fap, image_index, hdr));
     if (!rc && MUST_DECOMPRESS(fap, image_index, hdr)) {
         image_hash_valid = 0;
         FIH_SET(valid_signature, FIH_FAILURE);
@@ -701,6 +699,7 @@ bootutil_img_validate(struct enc_key_data *enc_state, int image_index,
             goto out;
         }
 
+LOG_ERR("do find");
         rc = bootutil_tlv_iter_begin(&it, hdr, fap, IMAGE_TLV_COMP_SHA, true);
         if (rc) {
             goto out;
@@ -730,12 +729,14 @@ bootutil_img_validate(struct enc_key_data *enc_state, int image_index,
                     goto out;
                 }
 
+LOG_ERR("do check");
                 FIH_CALL(boot_fih_memequal, fih_rc, hash, buf, sizeof(hash));
                 if (FIH_NOT_EQ(fih_rc, FIH_SUCCESS)) {
                     FIH_SET(fih_rc, FIH_FAILURE);
                     goto out;
                 }
 
+LOG_ERR("we match");
                 image_hash_valid = 1;
             }
         }
@@ -794,6 +795,7 @@ bootutil_img_validate(struct enc_key_data *enc_state, int image_index,
         }
 #endif /* EXPECTED_KEY_TLV */
 
+LOG_ERR("our key id: %d", key_id);
         rc = bootutil_tlv_iter_begin(&it, hdr, fap, IMAGE_TLV_COMP_SIGNATURE, true);
         if (rc) {
             goto out;
@@ -818,6 +820,7 @@ bootutil_img_validate(struct enc_key_data *enc_state, int image_index,
                     key_id = -1;
                     continue;
                 }
+LOG_ERR("we find1");
                 if (!EXPECTED_SIG_LEN(len) || len > sizeof(buf)) {
                     rc = -1;
                     goto out;
@@ -826,8 +829,10 @@ bootutil_img_validate(struct enc_key_data *enc_state, int image_index,
                 if (rc) {
                     goto out;
                 }
+LOG_ERR("we check1");
                 FIH_CALL(bootutil_verify_sig, valid_signature, hash, sizeof(hash),
                                                                buf, len, key_id);
+LOG_ERR("valid %d", valid_signature);
                 key_id = -1;
             }
         }

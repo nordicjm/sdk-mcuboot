@@ -49,6 +49,9 @@ BOOT_LOG_ERR("size: %d, size_check: %d, comp_size: %d", size, size_check, state-
     return true;
 }
 
+static int boot_size_protected_tlvs(struct image_header *hdr, const struct flash_area *fap_src, uint32_t *sz);
+static int boot_sha_protected_tlvs(struct image_header *hdr, const struct flash_area *fap_src, uint32_t protected_size, uint8_t *buf, size_t buf_size, bootutil_sha_context *sha_ctx);
+
 int bootutil_img_hash_decompress(struct enc_key_data *enc_state, int image_index,
                   struct image_header *hdr, const struct flash_area *fap,
                   uint8_t *tmp_buf, uint32_t tmp_buf_sz, uint8_t *hash_result,
@@ -70,7 +73,6 @@ BOOT_LOG_ERR("hdr size: %d, protected tlv size: %d, img size: %d", hdr->ih_hdr_s
 bootutil_sha_init(&sha_ctx);
 
     /* Setup decompression system */
-#if 0
 #if CONFIG_NRF_COMPRESS_LZMA_VERSION_LZMA1
     if (!(hdr->ih_flags & IMAGE_F_COMPRESSED_LZMA1)) {
 #elif CONFIG_NRF_COMPRESS_LZMA_VERSION_LZMA2
@@ -81,7 +83,6 @@ bootutil_sha_init(&sha_ctx);
 rc = 4;
         goto finish;
     }
-#endif
 
     compression = nrf_compress_implementation_find(NRF_COMPRESS_TYPE_LZMA);
 BOOT_LOG_ERR("find... got %p", compression);
@@ -111,82 +112,47 @@ rc = 4;
 size_t decompressed_image_size;
 rc = bootutil_get_img_comp_size(hdr, fap, &decompressed_image_size);
 
+LOG_ERR("here0 %d", rc);
+
 if (rc) {
 rc = 4;
 goto finish;
 }
 
+LOG_ERR("here1");
+
     modified_hdr.ih_flags &= ~COMPRESSIONFLAGS;
     modified_hdr.ih_img_size = decompressed_image_size;
-    modified_hdr.ih_protect_tlv_size -= 8;
+
+uint32_t protected_tlv_size = 0;
+
+rc = boot_size_protected_tlvs(hdr, fap, &protected_tlv_size);
+modified_hdr.ih_protect_tlv_size = protected_tlv_size;
+//    modified_hdr.ih_protect_tlv_size -= 8;
 //2 bytes type, 2 bytes length, size of data (4) = 8
 
 //sha of header
 bootutil_sha_update(&sha_ctx, &modified_hdr, sizeof(modified_hdr));
+//LOG_HEXDUMP_ERR(&modified_hdr, sizeof(modified_hdr), "sha");
 
-//deal with protected TLV part here
-pos = 0;
+if (modified_hdr.ih_protect_tlv_size > 0) {
+    rc = boot_sha_protected_tlvs(hdr, fap, modified_hdr.ih_protect_tlv_size, tmp_buf, tmp_buf_sz, &sha_ctx);
+}
 
-    if (hdr->ih_protect_tlv_size > 0) {
-        struct image_tlv_info tlv_header;
+    pos = sizeof(modified_hdr);
 
-        rc = flash_area_read(fap, hdr->ih_hdr_size, &tlv_header, sizeof(tlv_header));
+memset(tmp_buf, 0xff, tmp_buf_sz);
 
-        if (rc) {
-            rc = BOOT_EFLASH;
-            goto finish;
-        }
+while (pos < modified_hdr.ih_hdr_size) {
+uint32_t copy_size = tmp_buf_sz;
+if ((pos + copy_size) > modified_hdr.ih_hdr_size) {
+copy_size = modified_hdr.ih_hdr_size - pos;
+}
+bootutil_sha_update(&sha_ctx, tmp_buf, copy_size);
+//LOG_HEXDUMP_ERR(tmp_buf, copy_size, "sha");
+pos += copy_size;
+}
 
-        tlv_header.it_tlv_tot -= 8;
-
-//sha256 here
-bootutil_sha_update(&sha_ctx, &tlv_header, sizeof(tlv_header));
-
-        while (pos < hdr->ih_protect_tlv_size) {
-            struct image_tlv tlv_entry_header;
-
-//tmp_buf
-//tmp_buf_size
-            rc = flash_area_read(fap, hdr->ih_hdr_size + sizeof(tlv_header) + pos, &tlv_entry_header, sizeof(tlv_entry_header));
-
-            if (rc) {
-                rc = BOOT_EFLASH;
-                goto finish;
-            }
-
-            pos += sizeof(tlv_entry_header);
-
-//tlv_entry_header.it_len
-            if (tlv_entry_header.it_type == IMAGE_TLV_COMP_SIZE || tlv_entry_header.it_type == IMAGE_TLV_COMP_SHA || tlv_entry_header.it_type == IMAGE_TLV_COMP_SIGNATURE) {
-                /* Skip these entries */
-                pos += tlv_entry_header.it_len;
-                continue;
-            }
-
-bootutil_sha_update(&sha_ctx, &tlv_entry_header, sizeof(tlv_entry_header));
-uint16_t fizzle = 0;
-
-            while (fizzle < tlv_entry_header.it_len) {
-                uint16_t read_size = tmp_buf_sz;
-
-                if ((fizzle + read_size) > tlv_entry_header.it_len) {
-                    read_size = tlv_entry_header.it_len - fizzle;
-                }
-
-                rc = flash_area_read(fap, hdr->ih_hdr_size + sizeof(tlv_header) + pos + fizzle, tmp_buf, read_size);
-
-                if (rc) {
-                    rc = BOOT_EFLASH;
-                    goto finish;
-                }
-
-//hash here
-bootutil_sha_update(&sha_ctx, tmp_buf, read_size);
-            }
-
-            pos += tlv_entry_header.it_len;
-        }
-    }
 
     /* Read in compressed data, decompress and add to hash calculation */
     pos = 0;
@@ -258,6 +224,7 @@ rc = -3;
             if (output_size > 0) {
 //hash data here
 bootutil_sha_update(&sha_ctx, output, output_size);
+//LOG_HEXDUMP_ERR(output, output_size, "sha");
             }
 
             tmp_off += chunk_size;
@@ -272,6 +239,8 @@ bootutil_sha_update(&sha_ctx, output, output_size);
 //finish hash here
     bootutil_sha_finish(&sha_ctx, hash_result);
     bootutil_sha_drop(&sha_ctx);
+
+LOG_HEXDUMP_ERR(hash_result, 32, "teh hash");
 
 BOOT_LOG_ERR("success?");
 finish:
@@ -349,8 +318,69 @@ LOG_ERR("uh oh %d", rc);
     return 0;
 }
 
+static int boot_sha_protected_tlvs(struct image_header *hdr, const struct flash_area *fap_src, uint32_t protected_size, uint8_t *buf, size_t buf_size, bootutil_sha_context *sha_ctx)
+{
+    int rc;
+    uint32_t off;
+    uint16_t len;
+    uint16_t type;
+    struct image_tlv_iter it;
+    struct image_tlv tlv_header;
+    struct image_tlv_info tlv_info_header = {
+        .it_magic = IMAGE_TLV_PROT_INFO_MAGIC,
+        .it_tlv_tot = protected_size,
+    };
+
+    bootutil_sha_update(sha_ctx, &tlv_info_header, sizeof(tlv_info_header));
+//LOG_HEXDUMP_ERR(&tlv_info_header, sizeof(tlv_info_header), "sha");
+
+    rc = bootutil_tlv_iter_begin(&it, hdr, fap_src, IMAGE_TLV_ANY, true);
+    if (rc) {
+        goto out;
+    }
+
+    while (true) {
+        rc = bootutil_tlv_iter_next(&it, &off, &len, &type);
+        if (rc < 0) {
+            goto out;
+        } else if (rc > 0) {
+            rc = 0;
+            break;
+        }
+
+        if (type == IMAGE_TLV_COMP_SIZE || type == IMAGE_TLV_COMP_SHA || type == IMAGE_TLV_COMP_SIGNATURE) {
+            /* Skip these TLVs as they are not needed */
+            continue;
+        }
+
+        tlv_header.it_type = type;
+        tlv_header.it_len = len;
+
+        bootutil_sha_update(sha_ctx, &tlv_header, sizeof(tlv_header));
+//LOG_HEXDUMP_ERR(&tlv_header, sizeof(tlv_header), "sha");
+
+uint32_t read_off = 0;
+        while (read_off < len) {
+            uint32_t copy_size = buf_size;
+
+            if (copy_size > (len - read_off)) {
+                copy_size = len - read_off;
+            }
+
+            rc = LOAD_IMAGE_DATA(hdr, fap_src, (off + read_off), buf, copy_size);
+
+            bootutil_sha_update(sha_ctx, buf, copy_size);
+//LOG_HEXDUMP_ERR(buf, copy_size, "sha");
+            read_off += copy_size;
+        }
+    }
+
+out:
+    return rc;
+}
+
 // *sz will be updated with length of new section
-static int boot_size_protected_tlvs(struct image_header *hdr, const struct flash_area *fap_src, uint32_t off_src, uint32_t *sz)
+static int boot_size_protected_tlvs(struct image_header *hdr, const struct flash_area *fap_src, uint32_t *sz)
 {
     int rc = 0;
     uint32_t tlv_size;
@@ -592,7 +622,7 @@ goto finish;
     modified_hdr.ih_img_size = decompressed_image_size;
 
 //Calculate protected TLV size
-rc = boot_size_protected_tlvs(hdr, fap_src, off_src, &protected_tlv_size);
+rc = boot_size_protected_tlvs(hdr, fap_src, &protected_tlv_size);
     modified_hdr.ih_protect_tlv_size = protected_tlv_size;
 
 //header?

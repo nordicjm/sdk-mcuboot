@@ -17,13 +17,15 @@ BOOT_LOG_MODULE_DECLARE(mcuboot);
 #define TARGET_STATIC
 #endif
 
-bool boot_is_compressed_header_valid(struct boot_loader_state *state, const struct flash_area *fap, uint32_t size)
+bool boot_is_compressed_header_valid(const struct image_header *hdr, const struct flash_area *fap, struct boot_loader_state *state)
 {
     /* Image is compressed in secondary slot, need to check if fits into the primary slot */
     bool opened_flash_area = false;
     int primary_fa_id;
     int rc;
     int size_check;
+    int size;
+    size_t decompressed_size;
 
     if (BOOT_IMG_AREA(state, BOOT_PRIMARY_SLOT) == NULL) {
         opened_flash_area = true;
@@ -39,8 +41,18 @@ bool boot_is_compressed_header_valid(struct boot_loader_state *state, const stru
         (void)flash_area_close(BOOT_IMG_AREA(state, BOOT_PRIMARY_SLOT));
     }
 
+    rc = bootutil_get_img_comp_size(hdr, fap, &decompressed_size);
+
+    if (rc) {
+        return false;
+    }
+
+    if (!boot_u32_safe_add(&size, decompressed_size, hdr->ih_hdr_size)) {
+        return false;
+    }
+
 //TODO
-BOOT_LOG_ERR("size: %d, size_check: %d, comp_size: %d", size, size_check, state->compressed_data[BOOT_CURR_IMG(state)].compressed_size);
+BOOT_LOG_ERR("size_check: %d, decompressed_size: %d, size %d", size_check, decompressed_size, size);
 
     if (size >= size_check) {
         return false;
@@ -809,7 +821,7 @@ finish:
     return 0;
 }
 
-int32_t bootutil_get_img_comp_size(struct image_header *hdr,
+int32_t bootutil_get_img_comp_size(const struct image_header *hdr,
                            const struct flash_area *fap,
                            size_t *img_comp_size)
 {

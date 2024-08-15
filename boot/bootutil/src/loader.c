@@ -118,10 +118,6 @@ boot_read_image_headers(struct boot_loader_state *state, bool require_all,
     int i;
 
     for (i = 0; i < BOOT_NUM_SLOTS; i++) {
-#ifdef MCUBOOT_DECOMPRESS_IMAGES
-        uint32_t area_id = flash_area_id_from_multi_image_slot(BOOT_CURR_IMG(state), i);
-#endif
-
         rc = BOOT_HOOK_CALL(boot_read_image_header_hook, BOOT_HOOK_REGULAR,
                             BOOT_CURR_IMG(state), i, boot_img_hdr(state, i));
         if (rc == BOOT_HOOK_REGULAR)
@@ -150,42 +146,6 @@ boot_read_image_headers(struct boot_loader_state *state, bool require_all,
                 return rc;
             }
         }
-#ifdef MCUBOOT_DECOMPRESS_IMAGES
-        /* Check if this is a compressed imaege in secondary slot, if so, load the compressed image size */
-        if (i == 1 && area_id == FLASH_AREA_IMAGE_SECONDARY(BOOT_CURR_IMG(state)) && IS_COMPRESSED(boot_img_hdr(state, i))) {
-            size_t image_compressed_size = 0;
-            const struct flash_area *fap;
-
-            rc = flash_area_open(area_id, &fap);
-
-            if (rc != 0) {
-                rc = BOOT_EFLASH;
-                goto done;
-            }
-
-            rc = bootutil_get_img_comp_size(boot_img_hdr(state, i), fap, &image_compressed_size);
-
-done:
-            flash_area_close(fap);
-
-
-            if (rc != 0) {
-                /* If `require_all` is set, fail on any single fail, otherwise
-                 * if at least the first slot's header was read successfully,
-                 * then the boot loader can attempt a boot.
-                 *
-                 * Failure to read any headers is a fatal error.
-                 */
-                if (i > 0 && !require_all) {
-                    return 0;
-                } else {
-                    return rc;
-                }
-            }
-
-            state->compressed_data[BOOT_CURR_IMG(state)].compressed_size = image_compressed_size;
-        }
-#endif
     }
 
     return 0;
@@ -937,19 +897,15 @@ boot_is_header_valid(const struct image_header *hdr, const struct flash_area *fa
         return false;
     }
 
+    if (size >= flash_area_get_size(fap)) {
+        return false;
+    }
+
 #ifdef MCUBOOT_DECOMPRESS_IMAGES
     if (MUST_DECOMPRESS(fap, BOOT_CURR_IMG(state), hdr)) {
-bool valid = boot_is_compressed_header_valid(state, fap, size);
-
-if (!valid) {
-    return false;
-}
-    } else {
-#endif
-        if (size >= flash_area_get_size(fap)) {
+        if (!boot_is_compressed_header_valid(hdr, fap, state)) {
             return false;
         }
-#ifdef MCUBOOT_DECOMPRESS_IMAGES
     }
 #endif
 

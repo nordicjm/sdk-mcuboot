@@ -309,11 +309,11 @@ uint8_t tmp_buf[4];
 uint8_t copy_amt = off_dst % 4;
 memset(tmp_buf, 0xff, sizeof(tmp_buf));
 //off dst is 17, %4 = 1
-memcpy(&tmp_buf[3-copy_amt], buf, copy_amt);
+memcpy(&tmp_buf[4-copy_amt], buf, 4-copy_amt);
 
 LOG_ERR("unaligned1 %d", copy_amt);
 
-    rc = flash_area_write(fap_dst, off_dst - copy_amt, tmp_buf, sizeof(tmp_buf));
+    rc = flash_area_write(fap_dst, (off_dst - copy_amt), tmp_buf, sizeof(tmp_buf));
     if (rc != 0) {
         rc = BOOT_EFLASH+2;
 goto out;
@@ -554,16 +554,26 @@ tlv_info_header.it_tlv_tot = buf_pos;
 memcpy(buf, &tlv_info_header, sizeof(tlv_info_header));
 
 if ((off_dst % 4)) {
+/*
+if r = 1 then need to back by 3 and write 4 bytes of which 3 are data and 1 is 0xff
+*/
+/*
+0x5c6e which is 23662, 0b10, 2 out
+*/
+LOG_ERR("we got %d", off_dst);
 /* Unaligned write */
+LOG_HEXDUMP_ERR(buf, buf_pos, "prior");
 uint8_t tmp_buf[4];
 uint8_t copy_amt = off_dst % 4;
 memset(tmp_buf, 0xff, sizeof(tmp_buf));
 //off dst is 17, %4 = 1
-memcpy(&tmp_buf[3-copy_amt], buf, copy_amt);
 
-LOG_ERR("unaligned2 %d", copy_amt);
+memcpy(&tmp_buf[4-copy_amt], buf, 4-copy_amt);
 
-    rc = flash_area_write(fap_dst, off_dst - copy_amt, tmp_buf, sizeof(tmp_buf));
+LOG_ERR("unaligned2, write %d of %d", (off_dst - copy_amt), copy_amt);
+LOG_HEXDUMP_ERR(tmp_buf, sizeof(tmp_buf), "data to write");
+
+    rc = flash_area_write(fap_dst, (off_dst - copy_amt), tmp_buf, sizeof(tmp_buf));
     if (rc != 0) {
         rc = BOOT_EFLASH+2;
 goto out;
@@ -574,6 +584,7 @@ off_dst += copy_amt;
 
 memmove(buf, &buf[copy_amt], buf_pos);
 LOG_ERR("unaligned2 IS NOW %d, %d", off_dst, buf_pos);
+LOG_HEXDUMP_ERR(buf, buf_pos, "shifted");
 }
 
 /* Apply padding if needed... TODO */

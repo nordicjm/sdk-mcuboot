@@ -17,6 +17,9 @@ BOOT_LOG_MODULE_DECLARE(mcuboot);
 #define TARGET_STATIC
 #endif
 
+static int boot_size_protected_tlvs(const struct image_header *hdr, const struct flash_area *fap_src, uint32_t *sz);
+static int boot_sha_protected_tlvs(const struct image_header *hdr, const struct flash_area *fap_src, uint32_t protected_size, uint8_t *buf, size_t buf_size, bootutil_sha_context *sha_ctx);
+
 bool boot_is_compressed_header_valid(const struct image_header *hdr, const struct flash_area *fap, struct boot_loader_state *state)
 {
     /* Image is compressed in secondary slot, need to check if fits into the primary slot */
@@ -25,6 +28,7 @@ bool boot_is_compressed_header_valid(const struct image_header *hdr, const struc
     int rc;
     int size_check;
     int size;
+    uint32_t protected_tlvs_size;
     size_t decompressed_size;
 
     if (BOOT_IMG_AREA(state, BOOT_PRIMARY_SLOT) == NULL) {
@@ -51,8 +55,17 @@ bool boot_is_compressed_header_valid(const struct image_header *hdr, const struc
         return false;
     }
 
-//TODO
-BOOT_LOG_ERR("size_check: %d, decompressed_size: %d, size %d", size_check, decompressed_size, size);
+    rc = boot_size_protected_tlvs(hdr, fap, &protected_tlvs_size);
+
+    if (rc) {
+        return false;
+    }
+
+    if (!boot_u32_safe_add(&size, size, protected_tlvs_size)) {
+        return false;
+    }
+
+BOOT_LOG_ERR("size_check: %d, decompressed_size: %d, protected_tlvs_size: %d, size: %d", size_check, decompressed_size, protected_tlvs_size, size);
 
     if (size >= size_check) {
         return false;
@@ -60,9 +73,6 @@ BOOT_LOG_ERR("size_check: %d, decompressed_size: %d, size %d", size_check, decom
 
     return true;
 }
-
-static int boot_size_protected_tlvs(struct image_header *hdr, const struct flash_area *fap_src, uint32_t *sz);
-static int boot_sha_protected_tlvs(struct image_header *hdr, const struct flash_area *fap_src, uint32_t protected_size, uint8_t *buf, size_t buf_size, bootutil_sha_context *sha_ctx);
 
 int bootutil_img_hash_decompress(struct enc_key_data *enc_state, int image_index,
                   struct image_header *hdr, const struct flash_area *fap,
@@ -248,8 +258,7 @@ finish:
     return 0;
 }
 
-
-static int boot_copy_protected_tlvs(struct image_header *hdr, const struct flash_area *fap_src, const struct flash_area *fap_dst, uint32_t off_dst, uint32_t protected_size, uint8_t *buf, size_t buf_size)
+static int boot_copy_protected_tlvs(const struct image_header *hdr, const struct flash_area *fap_src, const struct flash_area *fap_dst, uint32_t off_dst, uint32_t protected_size, uint8_t *buf, size_t buf_size)
 {
     int rc;
     uint32_t buf_pos = 0;
@@ -316,7 +325,7 @@ LOG_ERR("uh oh %d", rc);
     return 0;
 }
 
-static int boot_sha_protected_tlvs(struct image_header *hdr, const struct flash_area *fap_src, uint32_t protected_size, uint8_t *buf, size_t buf_size, bootutil_sha_context *sha_ctx)
+static int boot_sha_protected_tlvs(const struct image_header *hdr, const struct flash_area *fap_src, uint32_t protected_size, uint8_t *buf, size_t buf_size, bootutil_sha_context *sha_ctx)
 {
     int rc;
     uint32_t off;
@@ -378,7 +387,7 @@ out:
 }
 
 // *sz will be updated with length of new section
-static int boot_size_protected_tlvs(struct image_header *hdr, const struct flash_area *fap_src, uint32_t *sz)
+static int boot_size_protected_tlvs(const struct image_header *hdr, const struct flash_area *fap_src, uint32_t *sz)
 {
     int rc = 0;
     uint32_t tlv_size;
@@ -438,7 +447,7 @@ out:
 #define EXPECTED_SIG_TLV IMAGE_TLV_ED25519
 #endif
 
-static int boot_copy_unprotected_tlvs(struct image_header *hdr, const struct flash_area *fap_src, const struct flash_area *fap_dst, uint32_t off_dst, uint8_t *buf, size_t buf_size)
+static int boot_copy_unprotected_tlvs(const struct image_header *hdr, const struct flash_area *fap_src, const struct flash_area *fap_dst, uint32_t off_dst, uint8_t *buf, size_t buf_size)
 {
 
     int rc;

@@ -172,7 +172,7 @@ bootutil_img_hash(struct enc_key_data *enc_state, int image_index,
     bootutil_sha_finish(&sha_ctx, hash_result);
     bootutil_sha_drop(&sha_ctx);
     rc = 0;
-LOG_HEXDUMP_ERR(hash_result, 32, "result");
+//LOG_HEXDUMP_ERR(hash_result, 32, "result");
 
 cleanup:
     return rc;

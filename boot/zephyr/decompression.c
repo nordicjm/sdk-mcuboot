@@ -152,10 +152,6 @@ modified_hdr.ih_protect_tlv_size = protected_tlv_size;
 bootutil_sha_update(&sha_ctx, &modified_hdr, sizeof(modified_hdr));
 //LOG_HEXDUMP_ERR(&modified_hdr, sizeof(modified_hdr), "sha");
 
-if (modified_hdr.ih_protect_tlv_size > 0) {
-    rc = boot_sha_protected_tlvs(hdr, fap, modified_hdr.ih_protect_tlv_size, tmp_buf, tmp_buf_sz, &sha_ctx);
-}
-
     pos = sizeof(modified_hdr);
 
 memset(tmp_buf, 0xff, tmp_buf_sz);
@@ -247,6 +243,10 @@ bootutil_sha_update(&sha_ctx, output, output_size);
     /* Clean up decompression system */
     (void)compression->deinit(NULL);
 
+if (modified_hdr.ih_protect_tlv_size > 0) {
+    rc = boot_sha_protected_tlvs(hdr, fap, modified_hdr.ih_protect_tlv_size, tmp_buf, tmp_buf_sz, &sha_ctx);
+}
+
 //finish hash here
     bootutil_sha_finish(&sha_ctx, hash_result);
     bootutil_sha_drop(&sha_ctx);
@@ -303,15 +303,38 @@ static int boot_copy_protected_tlvs(const struct image_header *hdr, const struct
         }
     }
 
+if ((off_dst % 4)) {
+/* Unaligned write */
+uint8_t tmp_buf[4];
+uint8_t copy_amt = off_dst % 4;
+memset(tmp_buf, 0xff, sizeof(tmp_buf));
+//off dst is 17, %4 = 1
+memcpy(&tmp_buf[3-copy_amt], buf, copy_amt);
+
+LOG_ERR("unaligned1 %d", copy_amt);
+
+    rc = flash_area_write(fap_dst, off_dst - copy_amt, tmp_buf, sizeof(tmp_buf));
+    if (rc != 0) {
+        rc = BOOT_EFLASH+2;
+goto out;
+    }
+
+buf_pos -= copy_amt;
+off_dst += copy_amt;
+
+memmove(buf, &buf[copy_amt], buf_pos);
+LOG_ERR("unaligned1 IS NOW %d, %d", off_dst, buf_pos);
+}
+
 /* Apply padding if needed... TODO */
     if ((buf_pos % 4) != 0) {
-        uint8_t padding = 4 - (buf_size % 4);
+        uint8_t padding = 4 - (buf_pos % 4);
 
         memset(&buf[buf_pos], 0xff, padding);
         buf_pos += padding;
     }
 
-/* TODO unaligned writes */
+LOG_ERR("writing to %d for %d", off_dst, buf_pos);
     rc = flash_area_write(fap_dst, off_dst, buf, buf_pos);
     if (rc != 0) {
         rc = BOOT_EFLASH;
@@ -320,7 +343,7 @@ goto out;
 
 out:
 if (rc) {
-LOG_ERR("uh oh %d", rc);
+LOG_ERR("uh oh1 %d", rc);
 }
     return 0;
 }
@@ -530,9 +553,32 @@ goto out;
 tlv_info_header.it_tlv_tot = buf_pos;
 memcpy(buf, &tlv_info_header, sizeof(tlv_info_header));
 
+if ((off_dst % 4)) {
+/* Unaligned write */
+uint8_t tmp_buf[4];
+uint8_t copy_amt = off_dst % 4;
+memset(tmp_buf, 0xff, sizeof(tmp_buf));
+//off dst is 17, %4 = 1
+memcpy(&tmp_buf[3-copy_amt], buf, copy_amt);
+
+LOG_ERR("unaligned2 %d", copy_amt);
+
+    rc = flash_area_write(fap_dst, off_dst - copy_amt, tmp_buf, sizeof(tmp_buf));
+    if (rc != 0) {
+        rc = BOOT_EFLASH+2;
+goto out;
+    }
+
+buf_pos -= copy_amt;
+off_dst += copy_amt;
+
+memmove(buf, &buf[copy_amt], buf_pos);
+LOG_ERR("unaligned2 IS NOW %d, %d", off_dst, buf_pos);
+}
+
 /* Apply padding if needed... TODO */
     if ((buf_pos % 4) != 0) {
-        uint8_t padding = 4 - (buf_size % 4);
+        uint8_t padding = 4 - (buf_pos % 4);
 
         memset(&buf[buf_pos], 0xff, padding);
         buf_pos += padding;
@@ -547,7 +593,7 @@ goto out;
 
 out:
 if (rc) {
-LOG_ERR("uh oh %d", rc);
+LOG_ERR("uh oh2 %d", rc);
 }
     return 0;
 }

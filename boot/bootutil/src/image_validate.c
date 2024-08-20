@@ -155,7 +155,6 @@ bootutil_img_hash(struct enc_key_data *enc_state, int image_index,
             goto cleanup;
         }
 #ifdef MCUBOOT_ENC_IMAGES
-//skip if compressed:
         if (MUST_DECRYPT(fap, image_index, hdr)) {
             /* Only payload is encrypted (area between header and TLVs) */
             if (off >= hdr_size && off < tlv_off) {
@@ -428,12 +427,6 @@ bootutil_img_validate(struct enc_key_data *enc_state, int image_index,
 
 #ifdef MCUBOOT_DECOMPRESS_IMAGES
     /* If the image is compressed, the integrity of the image must also be validated */
-//SIG_BUF_SIZE
-//IMAGE_HASH_SIZE
-
-//IMAGE_TLV_COMP_SIZE
-//IMAGE_TLV_COMP_SHA
-//IMAGE_TLV_COMP_SIGNATURE
     if (MUST_DECOMPRESS(fap, image_index, hdr)) {
         bool found_decompressed_size = false;
         bool found_decompressed_sha = false;
@@ -448,10 +441,6 @@ bootutil_img_validate(struct enc_key_data *enc_state, int image_index,
             rc = -1;
             goto out;
         }
-
-//size_t decompressed_size;
-//uint8_t decompressed_hash;
-//uint8_t decompressed_hash;
 
         while (true) {
             uint16_t expected_size = 0;
@@ -502,13 +491,6 @@ bootutil_img_validate(struct enc_key_data *enc_state, int image_index,
             goto out;
         }
     }
-
-
-/*
-    struct {
-        size_t compressed_size;
-    } compressed_data[BOOT_IMAGE_NUMBER];
-*/
 #endif
 
     rc = bootutil_img_hash(enc_state, image_index, hdr, fap, tmp_buf,

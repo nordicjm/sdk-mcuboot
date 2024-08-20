@@ -33,6 +33,8 @@ int bootutil_img_hash_decompress(struct enc_key_data *enc_state, int image_index
                                  uint8_t *tmp_buf, uint32_t tmp_buf_sz, uint8_t *hash_result,
                                  uint8_t *seed, int seed_len);
 
+int boot_size_protected_tlvs(const struct image_header *hdr, const struct flash_area *fap_src, uint32_t *sz);
+
 #ifdef __cplusplus
 }
 #endif

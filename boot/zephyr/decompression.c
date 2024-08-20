@@ -17,7 +17,6 @@ BOOT_LOG_MODULE_DECLARE(mcuboot);
 #define TARGET_STATIC
 #endif
 
-static int boot_size_protected_tlvs(const struct image_header *hdr, const struct flash_area *fap_src, uint32_t *sz);
 static int boot_sha_protected_tlvs(const struct image_header *hdr, const struct flash_area *fap_src, uint32_t protected_size, uint8_t *buf, size_t buf_size, bootutil_sha_context *sha_ctx);
 
 bool boot_is_compressed_header_valid(const struct image_header *hdr, const struct flash_area *fap, struct boot_loader_state *state)
@@ -410,7 +409,7 @@ out:
 }
 
 // *sz will be updated with length of new section
-static int boot_size_protected_tlvs(const struct image_header *hdr, const struct flash_area *fap_src, uint32_t *sz)
+int boot_size_protected_tlvs(const struct image_header *hdr, const struct flash_area *fap_src, uint32_t *sz)
 {
     int rc = 0;
     uint32_t tlv_size;

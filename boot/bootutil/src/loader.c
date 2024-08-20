@@ -576,35 +576,76 @@ boot_read_image_size(struct boot_loader_state *state, int slot, uint32_t *size)
         goto done;
     }
 
-    off = BOOT_TLV_OFF(boot_img_hdr(state, slot));
+#ifdef MCUBOOT_DECOMPRESS_IMAGES
+    if (MUST_DECOMPRESS(fap, BOOT_CURR_IMG(state), boot_img_hdr(state, slot))) {
+        size_t tmp_size = 0;
 
-    if (flash_area_read(fap, off, &info, sizeof(info))) {
-        rc = BOOT_EFLASH;
-        goto done;
-    }
+        rc = bootutil_get_img_comp_size(boot_img_hdr(state, slot), fap, &tmp_size);
 
-    protect_tlv_size = boot_img_hdr(state, slot)->ih_protect_tlv_size;
-    if (info.it_magic == IMAGE_TLV_PROT_INFO_MAGIC) {
-        if (protect_tlv_size != info.it_tlv_tot) {
+        if (rc) {
             rc = BOOT_EBADIMAGE;
             goto done;
         }
 
-        if (flash_area_read(fap, off + info.it_tlv_tot, &info, sizeof(info))) {
+        off = boot_img_hdr(state, slot)->ih_hdr_size + tmp_size;
+
+        rc = boot_size_protected_tlvs(boot_img_hdr(state, slot), fap, &tmp_size);
+
+        if (rc) {
+            rc = BOOT_EBADIMAGE;
+            goto done;
+        }
+
+        off += tmp_size;
+
+        if (flash_area_read(fap, (BOOT_TLV_OFF(boot_img_hdr(state, slot)) +
+                                  boot_img_hdr(state, slot)->ih_protect_tlv_size), &info,
+                            sizeof(info))) {
             rc = BOOT_EFLASH;
             goto done;
         }
-    } else if (protect_tlv_size != 0) {
-        rc = BOOT_EBADIMAGE;
-        goto done;
+
+        if (info.it_magic != IMAGE_TLV_INFO_MAGIC) {
+            rc = BOOT_EBADIMAGE;
+            goto done;
+        }
+
+        *size = off + info.it_tlv_tot;
+    } else {
+#else
+    if (1) {
+#endif
+        off = BOOT_TLV_OFF(boot_img_hdr(state, slot));
+
+        if (flash_area_read(fap, off, &info, sizeof(info))) {
+            rc = BOOT_EFLASH;
+            goto done;
+        }
+
+        protect_tlv_size = boot_img_hdr(state, slot)->ih_protect_tlv_size;
+        if (info.it_magic == IMAGE_TLV_PROT_INFO_MAGIC) {
+            if (protect_tlv_size != info.it_tlv_tot) {
+                rc = BOOT_EBADIMAGE;
+                goto done;
+            }
+
+            if (flash_area_read(fap, off + info.it_tlv_tot, &info, sizeof(info))) {
+                rc = BOOT_EFLASH;
+                goto done;
+            }
+        } else if (protect_tlv_size != 0) {
+            rc = BOOT_EBADIMAGE;
+            goto done;
+        }
+
+        if (info.it_magic != IMAGE_TLV_INFO_MAGIC) {
+            rc = BOOT_EBADIMAGE;
+            goto done;
+        }
+
+        *size = off + protect_tlv_size + info.it_tlv_tot;
     }
 
-    if (info.it_magic != IMAGE_TLV_INFO_MAGIC) {
-        rc = BOOT_EBADIMAGE;
-        goto done;
-    }
-
-    *size = off + protect_tlv_size + info.it_tlv_tot;
     rc = 0;
 
 done:
@@ -1663,7 +1704,6 @@ boot_copy_image(struct boot_loader_state *state, struct boot_status *bs)
 #if defined(MCUBOOT_OVERWRITE_ONLY_FAST)
     uint32_t src_size = 0;
     rc = boot_read_image_size(state, BOOT_SECONDARY_SLOT, &src_size);
-src_size += 16000;
     assert(rc == 0);
 #endif
 

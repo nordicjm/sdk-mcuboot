@@ -45,7 +45,7 @@ bool boot_is_compressed_header_valid(const struct image_header *hdr, const struc
     int size_check;
     int size;
     uint32_t protected_tlvs_size;
-    size_t decompressed_size;
+    uint32_t decompressed_size;
 
     if (BOOT_IMG_AREA(state, BOOT_PRIMARY_SLOT) == NULL) {
         opened_flash_area = true;
@@ -61,7 +61,7 @@ bool boot_is_compressed_header_valid(const struct image_header *hdr, const struc
         (void)flash_area_close(BOOT_IMG_AREA(state, BOOT_PRIMARY_SLOT));
     }
 
-    rc = bootutil_get_img_comp_size(hdr, fap, &decompressed_size);
+    rc = bootutil_get_img_decomp_size(hdr, fap, &decompressed_size);
 
     if (rc) {
         return false;
@@ -96,9 +96,9 @@ int bootutil_img_hash_decompress(struct enc_key_data *enc_state, int image_index
                                  uint8_t *seed, int seed_len)
 {
     int rc;
-    uint32_t pos = 0;
+    uint32_t read_pos = 0;
     uint32_t protected_tlv_size = 0;
-    size_t decompressed_image_size;
+    uint32_t decompressed_image_size;
     struct nrf_compress_implementation *compression = NULL;
     TARGET_STATIC struct image_header modified_hdr;
     bootutil_sha_context sha_ctx;
@@ -148,7 +148,7 @@ rc = 4;
     /* Extract the decompressed image size from the protected TLV, set it and remove the
      * compressed image flags
      */
-    rc = bootutil_get_img_comp_size(hdr, fap, &decompressed_image_size);
+    rc = bootutil_get_img_decomp_size(hdr, fap, &decompressed_image_size);
 
     if (rc) {
 rc = 4;
@@ -170,33 +170,33 @@ rc = 4;
 
     modified_hdr.ih_protect_tlv_size = protected_tlv_size;
     bootutil_sha_update(&sha_ctx, &modified_hdr, sizeof(modified_hdr));
-    pos = sizeof(modified_hdr);
+    read_pos = sizeof(modified_hdr);
     memset(tmp_buf, 0xff, tmp_buf_sz);
 
-    while (pos < modified_hdr.ih_hdr_size) {
+    while (read_pos < modified_hdr.ih_hdr_size) {
         uint32_t copy_size = tmp_buf_sz;
 
-        if ((pos + copy_size) > modified_hdr.ih_hdr_size) {
-            copy_size = modified_hdr.ih_hdr_size - pos;
+        if ((read_pos + copy_size) > modified_hdr.ih_hdr_size) {
+            copy_size = modified_hdr.ih_hdr_size - read_pos;
         }
 
         bootutil_sha_update(&sha_ctx, tmp_buf, copy_size);
 //LOG_HEXDUMP_ERR(tmp_buf, copy_size, "sha");
-        pos += copy_size;
+        read_pos += copy_size;
     }
 
     /* Read in compressed data, decompress and add to hash calculation */
-    pos = 0;
+    read_pos = 0;
 
-    while (pos < hdr->ih_img_size) {
-        uint32_t copy_size = hdr->ih_img_size - pos;
+    while (read_pos < hdr->ih_img_size) {
+        uint32_t copy_size = hdr->ih_img_size - read_pos;
         uint32_t tmp_off = 0;
 
         if (copy_size > tmp_buf_sz) {
             copy_size = tmp_buf_sz;
         }
 
-        rc = flash_area_read(fap, hdr->ih_hdr_size + pos, tmp_buf, copy_size);
+        rc = flash_area_read(fap, hdr->ih_hdr_size + read_pos, tmp_buf, copy_size);
 
         if (rc != 0) {
             rc = BOOT_EFLASH;
@@ -219,7 +219,7 @@ rc = 4;
                 chunk_size = (copy_size - tmp_off);
             }
 
-            if ((pos + tmp_off + chunk_size) >= hdr->ih_img_size) {
+            if ((read_pos + tmp_off + chunk_size) >= hdr->ih_img_size) {
                 last_packet = true;
             }
 
@@ -234,7 +234,7 @@ rc = -4;
 
 //TODO: should only be checked in the dry run
 #if 0
-            if (last_packet == true && (my_write_pos + output_size) == 0) {
+            if (last_packet == true && (write_pos + output_size) == 0) {
                 /* Last packet and we still have no output, this is a faulty update */
 //                rc = BOOT_EFLASH;
 rc = -3;
@@ -255,7 +255,7 @@ rc = -3;
             tmp_off += chunk_size;
         }
 
-        pos += copy_size;
+        read_pos += copy_size;
     }
 
     /* Clean up decompression system */
@@ -492,7 +492,7 @@ out:
     return rc;
 }
 
-int boot_size_protected_tlvs(const struct image_header *hdr, const struct flash_area *fap_src,
+int boot_size_protected_tlvs(const struct image_header *hdr, const struct flash_area *fap,
                              uint32_t *sz)
 {
     int rc = 0;
@@ -505,7 +505,7 @@ int boot_size_protected_tlvs(const struct image_header *hdr, const struct flash_
     *sz = 0;
     tlv_size = hdr->ih_protect_tlv_size;
 
-    rc = bootutil_tlv_iter_begin(&it, hdr, fap_src, IMAGE_TLV_ANY, true);
+    rc = bootutil_tlv_iter_begin(&it, hdr, fap, IMAGE_TLV_ANY, true);
 
     if (rc) {
         goto out;
@@ -541,7 +541,7 @@ out:
     return rc;
 }
 
-int boot_size_unprotected_tlvs(const struct image_header *hdr, const struct flash_area *fap_src,
+int boot_size_unprotected_tlvs(const struct image_header *hdr, const struct flash_area *fap,
                                uint32_t *sz)
 {
     int rc = 0;
@@ -554,7 +554,7 @@ int boot_size_unprotected_tlvs(const struct image_header *hdr, const struct flas
     *sz = 0;
     tlv_size = sizeof(struct image_tlv_info);
 
-    rc = bootutil_tlv_iter_begin(&it, hdr, fap_src, IMAGE_TLV_ANY, false);
+    rc = bootutil_tlv_iter_begin(&it, hdr, fap, IMAGE_TLV_ANY, false);
 
     if (rc) {
         goto out;
@@ -601,7 +601,7 @@ static int boot_copy_unprotected_tlvs(const struct image_header *hdr,
     uint16_t len;
     uint16_t type;
     struct image_tlv_iter it;
-    struct image_tlv_iter it2;
+    struct image_tlv_iter it_protected;
     struct image_tlv tlv_header;
     struct image_tlv_info tlv_info_header = {
         .it_magic = IMAGE_TLV_INFO_MAGIC,
@@ -664,16 +664,17 @@ LOG_ERR("??2 %d", rc);
         /* Change the types of these fields */
         if (type == IMAGE_TLV_SHA256 || type == EXPECTED_SIG_TLV) {
 //TODO: sha384?
-            rc = bootutil_tlv_iter_begin(&it2, hdr, fap_src, (type == IMAGE_TLV_SHA256 ?
-                                                              IMAGE_TLV_COMP_SHA :
-                                                              IMAGE_TLV_COMP_SIGNATURE), true);
+            rc = bootutil_tlv_iter_begin(&it_protected, hdr, fap_src, (type == IMAGE_TLV_SHA256 ?
+                                                                       IMAGE_TLV_COMP_SHA :
+                                                                       IMAGE_TLV_COMP_SIGNATURE),
+                                         true);
 
             if (rc) {
                 goto out;
             }
 
             while (true) {
-                rc = bootutil_tlv_iter_next(&it2, &off, &len, &type);
+                rc = bootutil_tlv_iter_next(&it_protected, &off, &len, &type);
                 if (rc < 0) {
                     goto out;
                 } else if (rc > 0) {
@@ -766,16 +767,16 @@ int boot_copy_region_decompress(struct boot_loader_state *state, const struct fl
 {
     int rc;
     uint32_t pos = 0;
-    uint16_t second_buf_size = 0;
+    uint16_t decomp_buf_size = 0;
     uint16_t write_alignment;
-    uint32_t my_write_pos = 0;
+    uint32_t write_pos = 0;
     uint32_t protected_tlv_size = 0;
     uint32_t unprotected_tlv_size = 0;
     uint32_t tlv_write_size = 0;
-    size_t decompressed_image_size;
+    uint32_t decompressed_image_size;
     struct nrf_compress_implementation *compression = NULL;
     struct image_header *hdr;
-    TARGET_STATIC uint8_t second_buf[CONFIG_BOOT_DECOMPRESSION_BUFFER_SIZE] __attribute__((aligned(4)));
+    TARGET_STATIC uint8_t decomp_buf[CONFIG_BOOT_DECOMPRESSION_BUFFER_SIZE] __attribute__((aligned(4)));
     TARGET_STATIC struct image_header modified_hdr;
 
     hdr = boot_img_hdr(state, BOOT_SECONDARY_SLOT);
@@ -816,7 +817,7 @@ rc = 4;
 
     memcpy(&modified_hdr, hdr, sizeof(modified_hdr));
 
-    rc = bootutil_get_img_comp_size(hdr, fap_src, &decompressed_image_size);
+    rc = bootutil_get_img_decomp_size(hdr, fap_src, &decompressed_image_size);
 
     if (rc) {
 rc = 4;
@@ -874,8 +875,8 @@ rc = 4;
             uint32_t offset = 0;
             uint32_t output_size = 0;
             uint32_t chunk_size;
-            bool last_packet = false;
             uint8_t *output = NULL;
+            bool last_packet = false;
 
 //TODO: make this function unsigned
             chunk_size = compression->decompress_bytes_needed(NULL);
@@ -898,7 +899,7 @@ rc = -4;
             }
 
 //TODO: should only be checked in the dry run
-            if (last_packet == true && (my_write_pos + output_size) == 0) {
+            if (last_packet == true && (write_pos + output_size) == 0) {
                 /* Last packet and we still have no output, this is a faulty update */
 //                rc = BOOT_EFLASH;
 rc = -3;
@@ -912,38 +913,38 @@ rc = -3;
 
             /* Copy data to secondary buffer for writing out */
             while (output_size > 0) {
-                uint32_t data_size = (sizeof(second_buf) - second_buf_size);
+                uint32_t data_size = (sizeof(decomp_buf) - decomp_buf_size);
 
                 if (data_size > output_size) {
                     data_size = output_size;
                 }
 
-                memcpy(&second_buf[second_buf_size], output, data_size);
+                memcpy(&decomp_buf[decomp_buf_size], output, data_size);
                 memmove(output, &output[data_size], output_size - data_size);
 
-                second_buf_size += data_size;
+                decomp_buf_size += data_size;
                 output_size -= data_size;
 
                 /* Write data out from secondary buffer when it is full */
-                if (second_buf_size == sizeof(second_buf)) {
-//LOG_HEXDUMP_ERR(second_buf, sizeof(second_buf), "write");
+                if (decomp_buf_size == sizeof(decomp_buf)) {
+//LOG_HEXDUMP_ERR(decomp_buf, sizeof(decomp_buf), "write");
 //#ifdef MCUBOOT_ENC_IMAGES
 //                    if (IS_ENCRYPTED(hdr)) {
-//                        boot_encrypt(BOOT_CURR_ENC(state), image_index, fap_src, (off_dst + hdr->ih_hdr_size + my_write_pos), sizeof(second_buf), 0, second_buf);
+//                        boot_encrypt(BOOT_CURR_ENC(state), image_index, fap_src, (off_dst + hdr->ih_hdr_size + write_pos), sizeof(decomp_buf), 0, decomp_buf);
 //                    }
 //#endif
 
-                    rc = flash_area_write(fap_dst, (off_dst + hdr->ih_hdr_size + my_write_pos),
-                                          second_buf, sizeof(second_buf));
-LOG_ERR("write img data to 0x%x of %d", (off_dst + hdr->ih_hdr_size + my_write_pos), sizeof(second_buf));
+                    rc = flash_area_write(fap_dst, (off_dst + hdr->ih_hdr_size + write_pos),
+                                          decomp_buf, sizeof(decomp_buf));
+LOG_ERR("write img data to 0x%x of %d", (off_dst + hdr->ih_hdr_size + write_pos), sizeof(decomp_buf));
 
                     if (rc != 0) {
                         rc = BOOT_EFLASH;
                         goto finish;
                     }
 
-                    my_write_pos += sizeof(second_buf);
-                    second_buf_size = 0;
+                    write_pos += sizeof(decomp_buf);
+                    decomp_buf_size = 0;
                 }
             }
 
@@ -958,71 +959,71 @@ LOG_ERR("write img data to 0x%x of %d", (off_dst + hdr->ih_hdr_size + my_write_p
 
     if (protected_tlv_size > 0) {
         rc = boot_copy_protected_tlvs(hdr, fap_src, fap_dst, (off_dst + hdr->ih_hdr_size +
-                                                              my_write_pos), protected_tlv_size,
-                                      second_buf, sizeof(second_buf_size), &second_buf_size,
+                                                              write_pos), protected_tlv_size,
+                                      decomp_buf, sizeof(decomp_buf_size), &decomp_buf_size,
                                       &tlv_write_size);
 
         if (rc) {
             goto finish;
         }
 
-        my_write_pos += tlv_write_size;
+        write_pos += tlv_write_size;
     }
 
     tlv_write_size = 0;
     rc = boot_copy_unprotected_tlvs(hdr, fap_src, fap_dst, (off_dst + hdr->ih_hdr_size +
-                                                            my_write_pos), unprotected_tlv_size,
-                                    second_buf, sizeof(second_buf_size), &second_buf_size,
+                                                            write_pos), unprotected_tlv_size,
+                                    decomp_buf, sizeof(decomp_buf_size), &decomp_buf_size,
                                     &tlv_write_size);
 
     if (rc) {
         goto finish;
     }
 
-    my_write_pos += tlv_write_size;
+    write_pos += tlv_write_size;
 
     /* Check if we have unwritten data buffered up and, if so, write it out */
-    if (second_buf_size > 0) {
-        uint32_t write_padding_size = second_buf_size % write_alignment;
+    if (decomp_buf_size > 0) {
+        uint32_t write_padding_size = decomp_buf_size % write_alignment;
 
         /* Check if additional write padding should be applied to meet the minimum write size */
         if (write_padding_size) {
 LOG_ERR("DO PAD OF %d", write_padding_size);
-            memset(&second_buf[second_buf_size], 0xff, write_padding_size);
-            second_buf_size += write_padding_size;
+            memset(&decomp_buf[decomp_buf_size], 0xff, write_padding_size);
+            decomp_buf_size += write_padding_size;
         }
 
-//LOG_HEXDUMP_ERR(second_buf, second_buf_size, "write");
-        rc = flash_area_write(fap_dst, (off_dst + hdr->ih_hdr_size + my_write_pos), second_buf,
-                              second_buf_size);
-LOG_ERR("DO WRITE TO 0x%x of %d", (off_dst + hdr->ih_hdr_size + my_write_pos), second_buf_size);
-LOG_HEXDUMP_ERR(second_buf, second_buf_size, "output");
+//LOG_HEXDUMP_ERR(decomp_buf, decomp_buf_size, "write");
+        rc = flash_area_write(fap_dst, (off_dst + hdr->ih_hdr_size + write_pos), decomp_buf,
+                              decomp_buf_size);
+LOG_ERR("DO WRITE TO 0x%x of %d", (off_dst + hdr->ih_hdr_size + write_pos), decomp_buf_size);
+LOG_HEXDUMP_ERR(decomp_buf, decomp_buf_size, "output");
 
         if (rc != 0) {
             rc = BOOT_EFLASH;
             goto finish;
         }
 
-        my_write_pos += second_buf_size;
-        second_buf_size = 0;
+        write_pos += decomp_buf_size;
+        decomp_buf_size = 0;
     }
 
 BOOT_LOG_ERR("success?");
 finish:
-    memset(second_buf, 0, sizeof(second_buf));
+    memset(decomp_buf, 0, sizeof(decomp_buf));
 
     return rc;
 }
 
-int32_t bootutil_get_img_comp_size(const struct image_header *hdr, const struct flash_area *fap,
-                                   size_t *img_comp_size)
+int bootutil_get_img_decomp_size(const struct image_header *hdr, const struct flash_area *fap,
+                                 uint32_t *img_decomp_size)
 {
     struct image_tlv_iter it;
     uint32_t off;
     uint16_t len;
     int32_t rc;
 
-    if (hdr == NULL || fap == NULL || img_comp_size == NULL) {
+    if (hdr == NULL || fap == NULL || img_decomp_size == NULL) {
         return BOOT_EBADARGS;
     } else if (hdr->ih_protect_tlv_size == 0) {
         return BOOT_EBADIMAGE;
@@ -1040,11 +1041,11 @@ int32_t bootutil_get_img_comp_size(const struct image_header *hdr, const struct 
         return -1;
     }
 
-    if (len != sizeof(*img_comp_size)) {
+    if (len != sizeof(*img_decomp_size)) {
         return BOOT_EBADIMAGE;
     }
 
-    rc = LOAD_IMAGE_DATA(hdr, fap, off, img_comp_size, len);
+    rc = LOAD_IMAGE_DATA(hdr, fap, off, img_decomp_size, len);
 
     if (rc != 0) {
         return BOOT_EFLASH;

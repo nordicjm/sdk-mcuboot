@@ -578,9 +578,9 @@ boot_read_image_size(struct boot_loader_state *state, int slot, uint32_t *size)
 
 #ifdef MCUBOOT_DECOMPRESS_IMAGES
     if (MUST_DECOMPRESS(fap, BOOT_CURR_IMG(state), boot_img_hdr(state, slot))) {
-        size_t tmp_size = 0;
+        uint32_t tmp_size = 0;
 
-        rc = bootutil_get_img_comp_size(boot_img_hdr(state, slot), fap, &tmp_size);
+        rc = bootutil_get_img_decomp_size(boot_img_hdr(state, slot), fap, &tmp_size);
 
         if (rc) {
             rc = BOOT_EBADIMAGE;
@@ -926,7 +926,8 @@ out:
  * within the flash area we are in.
  */
 static bool
-boot_is_header_valid(const struct image_header *hdr, const struct flash_area *fap, struct boot_loader_state *state)
+boot_is_header_valid(const struct image_header *hdr, const struct flash_area *fap,
+                     struct boot_loader_state *state)
 {
     uint32_t size;
 
@@ -1575,7 +1576,8 @@ boot_copy_region(struct boot_loader_state *state,
 
     if (MUST_DECOMPRESS(fap_src, BOOT_CURR_IMG(state), hdr)) {
         /* Use alternative function for compressed images */
-        return boot_copy_region_decompress(state, fap_src, fap_dst, off_src, off_dst, sz, buf, BUF_SZ);
+        return boot_copy_region_decompress(state, fap_src, fap_dst, off_src, off_dst, sz, buf,
+                                           BUF_SZ);
     }
 #endif
 

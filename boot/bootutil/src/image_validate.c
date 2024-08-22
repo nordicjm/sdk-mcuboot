@@ -665,13 +665,15 @@ bootutil_img_validate(struct enc_key_data *enc_state, int image_index,
 #endif
 
 #ifdef MCUBOOT_DECOMPRESS_IMAGES
-    /* Only after all previous verifications have passed, perform a dry-run of the decompression and ensure the image is valid */
+    /* Only after all previous verifications have passed, perform a dry-run of the decompression
+     * and ensure the image is valid
+     */
     if (!rc && MUST_DECOMPRESS(fap, image_index, hdr)) {
         image_hash_valid = 0;
         FIH_SET(valid_signature, FIH_FAILURE);
 
-        rc = bootutil_img_hash_decompress(enc_state, image_index, hdr, fap, tmp_buf,
-                tmp_buf_sz, hash, seed, seed_len);
+        rc = bootutil_img_hash_decompress(enc_state, image_index, hdr, fap, tmp_buf, tmp_buf_sz,
+                                          hash, seed, seed_len);
         if (rc) {
             goto out;
         }

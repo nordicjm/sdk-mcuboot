@@ -454,19 +454,19 @@ bootutil_img_validate(struct enc_key_data *enc_state, int image_index,
             }
 
             switch (type) {
-            case IMAGE_TLV_COMP_SIZE:
+            case IMAGE_TLV_DECOMP_SIZE:
             {
                 expected_size = sizeof(size_t);
                 found_flag = &found_decompressed_size;
                 break;
             }
-            case IMAGE_TLV_COMP_SHA:
+            case IMAGE_TLV_DECOMP_SHA:
             {
                 expected_size = IMAGE_HASH_SIZE;
                 found_flag = &found_decompressed_sha;
                 break;
             }
-            case IMAGE_TLV_COMP_SIGNATURE:
+            case IMAGE_TLV_DECOMP_SIGNATURE:
             {
                 expected_size = SIG_BUF_SIZE;
                 found_flag = &found_decompressed_signature;
@@ -678,7 +678,7 @@ bootutil_img_validate(struct enc_key_data *enc_state, int image_index,
             goto out;
         }
 
-        rc = bootutil_tlv_iter_begin(&it, hdr, fap, IMAGE_TLV_COMP_SHA, true);
+        rc = bootutil_tlv_iter_begin(&it, hdr, fap, IMAGE_TLV_DECOMP_SHA, true);
         if (rc) {
             goto out;
         }
@@ -696,7 +696,7 @@ bootutil_img_validate(struct enc_key_data *enc_state, int image_index,
                 break;
             }
 
-            if (type == IMAGE_TLV_COMP_SHA) {
+            if (type == IMAGE_TLV_DECOMP_SHA) {
                 /* Verify the image hash. This must always be present. */
                 if (len != sizeof(hash)) {
                     rc = -1;
@@ -771,7 +771,7 @@ bootutil_img_validate(struct enc_key_data *enc_state, int image_index,
         }
 #endif /* EXPECTED_KEY_TLV */
 
-        rc = bootutil_tlv_iter_begin(&it, hdr, fap, IMAGE_TLV_COMP_SIGNATURE, true);
+        rc = bootutil_tlv_iter_begin(&it, hdr, fap, IMAGE_TLV_DECOMP_SIGNATURE, true);
         if (rc) {
             goto out;
         }
@@ -790,7 +790,7 @@ bootutil_img_validate(struct enc_key_data *enc_state, int image_index,
                 break;
             }
 
-            if (type == IMAGE_TLV_COMP_SIGNATURE) {
+            if (type == IMAGE_TLV_DECOMP_SIGNATURE) {
                 /* Ignore this signature if it is out of bounds. */
                 if (key_id < 0 || key_id >= bootutil_key_cnt) {
                     key_id = -1;

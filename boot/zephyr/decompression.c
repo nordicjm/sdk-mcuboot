@@ -347,8 +347,8 @@ LOG_HEXDUMP_ERR(&tlv_info_header_address[sizeof(tlv_info_header) - info_size_lef
             break;
         }
 
-        if (type == IMAGE_TLV_COMP_SIZE || type == IMAGE_TLV_COMP_SHA ||
-            type == IMAGE_TLV_COMP_SIGNATURE) {
+        if (type == IMAGE_TLV_DECOMP_SIZE || type == IMAGE_TLV_DECOMP_SHA ||
+            type == IMAGE_TLV_DECOMP_SIGNATURE) {
             /* Skip these TLVs as they are not needed */
             continue;
         } else {
@@ -461,8 +461,8 @@ static int boot_sha_protected_tlvs(const struct image_header *hdr,
             break;
         }
 
-        if (type == IMAGE_TLV_COMP_SIZE || type == IMAGE_TLV_COMP_SHA ||
-            type == IMAGE_TLV_COMP_SIGNATURE) {
+        if (type == IMAGE_TLV_DECOMP_SIZE || type == IMAGE_TLV_DECOMP_SHA ||
+            type == IMAGE_TLV_DECOMP_SIGNATURE) {
             /* Skip these TLVs as they are not needed */
             continue;
         }
@@ -521,8 +521,8 @@ int boot_size_protected_tlvs(const struct image_header *hdr, const struct flash_
             break;
         }
 
-        if (type == IMAGE_TLV_COMP_SIZE || type == IMAGE_TLV_COMP_SHA ||
-            type == IMAGE_TLV_COMP_SIGNATURE) {
+        if (type == IMAGE_TLV_DECOMP_SIZE || type == IMAGE_TLV_DECOMP_SHA ||
+            type == IMAGE_TLV_DECOMP_SIGNATURE) {
             /* Exclude these TLVs as they will be copied to the unprotected area */
             tlv_size -= len + sizeof(struct image_tlv);
         }
@@ -665,8 +665,8 @@ LOG_ERR("??2 %d", rc);
         if (type == IMAGE_TLV_SHA256 || type == EXPECTED_SIG_TLV) {
 //TODO: sha384?
             rc = bootutil_tlv_iter_begin(&it_protected, hdr, fap_src, (type == IMAGE_TLV_SHA256 ?
-                                                                       IMAGE_TLV_COMP_SHA :
-                                                                       IMAGE_TLV_COMP_SIGNATURE),
+                                                                       IMAGE_TLV_DECOMP_SHA :
+                                                                       IMAGE_TLV_DECOMP_SIGNATURE),
                                          true);
 
             if (rc) {
@@ -683,7 +683,7 @@ LOG_ERR("??2 %d", rc);
                 }
             }
 
-            if (type == IMAGE_TLV_COMP_SHA) {
+            if (type == IMAGE_TLV_DECOMP_SHA) {
                 type = IMAGE_TLV_SHA256;
             } else {
                 type = EXPECTED_SIG_TLV;
@@ -1029,7 +1029,7 @@ int bootutil_get_img_decomp_size(const struct image_header *hdr, const struct fl
         return BOOT_EBADIMAGE;
     }
 
-    rc = bootutil_tlv_iter_begin(&it, hdr, fap, IMAGE_TLV_COMP_SIZE, true);
+    rc = bootutil_tlv_iter_begin(&it, hdr, fap, IMAGE_TLV_DECOMP_SIZE, true);
 
     if (rc) {
         return rc;

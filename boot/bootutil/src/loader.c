@@ -131,6 +131,7 @@ boot_read_image_headers(struct boot_loader_state *state, bool require_all,
              * (image 1) will not contain a valid image header until an upgrade
              * of mcuboot has happened (filling S1 with the new version).
              */
+//??????
             if (BOOT_CURR_IMG(state) == 1 && i == 0) {
                 continue;
             }
@@ -1112,14 +1113,26 @@ boot_validate_slot(struct boot_loader_state *state, int slot,
          * Its flash_area hasn't got relevant boundaries.
          * Therfore need to override its boundaries for the check.
          */
-        if (BOOT_CURR_IMG(state) == 1) {
+        if (BOOT_CURR_IMG(state) == CONFIG_MCUBOOT_NETWORK_CORE_IMAGE_NUMBER) {
             min_addr = PM_CPUNET_APP_ADDRESS;
             max_addr = PM_CPUNET_APP_ADDRESS + PM_CPUNET_APP_SIZE;
-#ifdef PM_S1_ADDRESS
-        } else if (BOOT_CURR_IMG(state) == 0) {
-            min_addr = PM_S0_ADDRESS;
-            max_addr = pri_fa->fa_off + pri_fa->fa_size;
+        } else
 #endif
+#ifdef PM_S1_ADDRESS
+        if (BOOT_CURR_IMG(state) == CONFIG_MCUBOOT_B0_IMAGE_NUMBER) {
+#if (CONFIG_FLASH_LOAD_SIZE == PM_S0_ADDRESS)
+            if (reset_value >= PM_S1_ADDRESS && PM_S1_ADDRESS <= (PM_S1_ADDRESS + PM_S1_SIZE)) {
+                min_addr = PM_S1_ADDRESS;
+                max_addr = (PM_S1_ADDRESS + PM_S1_SIZE);
+#elif (CONFIG_FLASH_LOAD_SIZE == PM_S1_ADDRESS)
+            if (reset_value >= PM_S0_ADDRESS && PM_S0_ADDRESS <= (PM_S0_ADDRESS + PM_S0_SIZE)) {
+                min_addr = PM_S0_ADDRESS;
+                max_addr = (PM_S0_ADDRESS + PM_S0_SIZE);
+#endif
+            } else {
+                min_addr = pri_fa->fa_off;
+                max_addr = pri_fa->fa_off + pri_fa->fa_size;
+            }
         } else
 #endif
         {
@@ -1297,7 +1310,7 @@ boot_validated_swap_type(struct boot_loader_state *state,
     owner_nsib[BOOT_CURR_IMG(state)] = false;
 #endif
 
-#if defined(PM_S1_ADDRESS) || defined(CONFIG_SOC_NRF5340_CPUAPP)
+#if defined(PM_S1_ADDRESS) || defined(PM_CPUNET_B0N_ADDRESS)
     const struct flash_area *secondary_fa =
         BOOT_IMG_AREA(state, BOOT_SECONDARY_SLOT);
     struct image_header *hdr = boot_img_hdr(state, BOOT_SECONDARY_SLOT);
@@ -1336,29 +1349,34 @@ boot_validated_swap_type(struct boot_loader_state *state,
 
             /* Check start and end of primary slot for current image */
             if (reset_addr < primary_fa->fa_off) {
-#if defined(CONFIG_SOC_NRF5340_CPUAPP) && defined(CONFIG_NRF53_MULTI_IMAGE_UPDATE)
-		    const struct flash_area *nsib_fa;
+#ifdef PM_S1_ADDRESS
+#if (CONFIG_NCS_IS_VARIANT_IMAGE)
+                if (reset_addr >= PM_S0_ADDRESS && PM_S0_ADDRESS <= (PM_S0_ADDRESS + PM_S0_SIZE)) {
+#else
+                if (reset_addr >= PM_S1_ADDRESS && PM_S1_ADDRESS <= (PM_S1_ADDRESS + PM_S1_SIZE)) {
+#endif
+                    const struct flash_area *nsib_fa;
 
                     /* NSIB upgrade slot */
-                    rc = flash_area_open((uint32_t)_image_1_primary_slot_id,
-                                    &nsib_fa);
-
-                    if (rc != 0) {
-                            return BOOT_SWAP_TYPE_FAIL;
-                    }
-
-                    /* Image is placed before Primary and within the NSIB slot */
-                    if (reset_addr > nsib_fa->fa_off
-                        && reset_addr < (nsib_fa->fa_off + nsib_fa->fa_size)) {
-                        /* Set primary to be NSIB upgrade slot */
-                        BOOT_IMG_AREA(state, 0) = nsib_fa;
-                        owner_nsib[BOOT_CURR_IMG(state)] = true;
-                    }
+#if (CONFIG_NCS_IS_VARIANT_IMAGE)
+                    rc = flash_area_open(PM_S0_ID, &nsib_fa);
+#warning "s0"
 #else
-                return BOOT_SWAP_TYPE_NONE;
-
+                    rc = flash_area_open(PM_S1_ID, &nsib_fa);
+#warning "s1"
 #endif
 
+                    if (rc != 0) {
+                        return BOOT_SWAP_TYPE_FAIL;
+                    }
+
+                    /* Set primary to be NSIB upgrade slot */
+                    BOOT_IMG_AREA(state, 0) = nsib_fa;
+                    owner_nsib[BOOT_CURR_IMG(state)] = true;
+                }
+#else
+                return BOOT_SWAP_TYPE_NONE;
+#endif
             } else if (reset_addr > (primary_fa->fa_off + primary_fa->fa_size)) {
                 /* The image in the secondary slot is not intended for any */
                 return BOOT_SWAP_TYPE_NONE;
@@ -1372,7 +1390,7 @@ boot_validated_swap_type(struct boot_loader_state *state,
         sec_slot_mark_assigned(state);
     }
 
-#endif /* PM_S1_ADDRESS || CONFIG_SOC_NRF5340_CPUAPP */
+#endif /* PM_S1_ADDRESS || PM_CPUNET_B0N_ADDRESS */
 
     swap_type = boot_swap_type_multi(BOOT_CURR_IMG(state));
     if (BOOT_IS_UPGRADE(swap_type)) {

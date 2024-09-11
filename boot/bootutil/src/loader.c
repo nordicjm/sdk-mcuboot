@@ -132,7 +132,7 @@ boot_read_image_headers(struct boot_loader_state *state, bool require_all,
              * of mcuboot has happened (filling S1 with the new version).
              */
 //??????
-            if (BOOT_CURR_IMG(state) == 1 && i == 0) {
+            if (BOOT_CURR_IMG(state) == CONFIG_MCUBOOT_MCUBOOT_IMAGE_NUMBER && i == 0) {
                 continue;
             }
 #endif /* PM_S1_ADDRESS */
@@ -1119,20 +1119,14 @@ boot_validate_slot(struct boot_loader_state *state, int slot,
         } else
 #endif
 #ifdef PM_S1_ADDRESS
-        if (BOOT_CURR_IMG(state) == CONFIG_MCUBOOT_B0_IMAGE_NUMBER) {
+        if (BOOT_CURR_IMG(state) == CONFIG_MCUBOOT_MCUBOOT_IMAGE_NUMBER) {
 #if (CONFIG_FLASH_LOAD_SIZE == PM_S0_ADDRESS)
-            if (reset_value >= PM_S1_ADDRESS && PM_S1_ADDRESS <= (PM_S1_ADDRESS + PM_S1_SIZE)) {
-                min_addr = PM_S1_ADDRESS;
-                max_addr = (PM_S1_ADDRESS + PM_S1_SIZE);
+            min_addr = PM_S1_ADDRESS;
+            max_addr = (PM_S1_ADDRESS + PM_S1_SIZE);
 #elif (CONFIG_FLASH_LOAD_SIZE == PM_S1_ADDRESS)
-            if (reset_value >= PM_S0_ADDRESS && PM_S0_ADDRESS <= (PM_S0_ADDRESS + PM_S0_SIZE)) {
-                min_addr = PM_S0_ADDRESS;
-                max_addr = (PM_S0_ADDRESS + PM_S0_SIZE);
+            min_addr = PM_S0_ADDRESS;
+            max_addr = (PM_S0_ADDRESS + PM_S0_SIZE);
 #endif
-            } else {
-                min_addr = pri_fa->fa_off;
-                max_addr = pri_fa->fa_off + pri_fa->fa_size;
-            }
         } else
 #endif
         {
@@ -1348,43 +1342,37 @@ boot_validated_swap_type(struct boot_loader_state *state,
             }
 
             /* Check start and end of primary slot for current image */
-            if (reset_addr < primary_fa->fa_off) {
-#ifdef PM_S1_ADDRESS
 #if (CONFIG_NCS_IS_VARIANT_IMAGE)
-                if (reset_addr >= PM_S0_ADDRESS && PM_S0_ADDRESS <= (PM_S0_ADDRESS + PM_S0_SIZE)) {
+            if (reset_addr >= PM_S0_ADDRESS && PM_S0_ADDRESS <= (PM_S0_ADDRESS + PM_S0_SIZE)) {
 #else
-                if (reset_addr >= PM_S1_ADDRESS && PM_S1_ADDRESS <= (PM_S1_ADDRESS + PM_S1_SIZE)) {
+            if (reset_addr >= PM_S1_ADDRESS && PM_S1_ADDRESS <= (PM_S1_ADDRESS + PM_S1_SIZE)) {
 #endif
-                    const struct flash_area *nsib_fa;
+                const struct flash_area *nsib_fa;
 
-                    /* NSIB upgrade slot */
+                /* NSIB upgrade slot */
 #if (CONFIG_NCS_IS_VARIANT_IMAGE)
-                    rc = flash_area_open(PM_S0_ID, &nsib_fa);
+                rc = flash_area_open(PM_S0_ID, &nsib_fa);
 #warning "s0"
 #else
-                    rc = flash_area_open(PM_S1_ID, &nsib_fa);
+                rc = flash_area_open(PM_S1_ID, &nsib_fa);
 #warning "s1"
 #endif
 
-                    if (rc != 0) {
-                        return BOOT_SWAP_TYPE_FAIL;
-                    }
-
-                    /* Set primary to be NSIB upgrade slot */
-                    BOOT_IMG_AREA(state, 0) = nsib_fa;
-                    owner_nsib[BOOT_CURR_IMG(state)] = true;
+                if (rc != 0) {
+                    return BOOT_SWAP_TYPE_FAIL;
                 }
-#else
-                return BOOT_SWAP_TYPE_NONE;
-#endif
-            } else if (reset_addr > (primary_fa->fa_off + primary_fa->fa_size)) {
+
+                /* Set primary to be NSIB upgrade slot */
+                BOOT_IMG_AREA(state, 0) = nsib_fa;
+                owner_nsib[BOOT_CURR_IMG(state)] = true;
+            } else if (reset_addr < primary_fa->fa_off || reset_addr > (primary_fa->fa_off + primary_fa->fa_size)) {
                 /* The image in the secondary slot is not intended for any */
                 return BOOT_SWAP_TYPE_NONE;
             }
 
-            if ((primary_fa->fa_off == PM_S0_ADDRESS) || (primary_fa->fa_off == PM_S1_ADDRESS)) {
-                owner_nsib[BOOT_CURR_IMG(state)] = true;
-            }
+//            if ((primary_fa->fa_off == PM_S0_ADDRESS) || (primary_fa->fa_off == PM_S1_ADDRESS)) {
+//                owner_nsib[BOOT_CURR_IMG(state)] = true;
+//            }
         }
 #endif /* PM_S1_ADDRESS */
         sec_slot_mark_assigned(state);

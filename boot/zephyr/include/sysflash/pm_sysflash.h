@@ -19,9 +19,10 @@
 /* If B0 is present then two bootloaders are present, and we must use
  * a single secondary slot for both primary slots.
  */
-extern uint32_t _image_1_primary_slot_id[];
+//extern uint32_t _image_1_primary_slot_id[];
 #endif /* (MCUBOOT_IMAGE_NUMBER == 2 && defined(PM_B0_ADDRESS) */
 
+#if 0
 #if (MCUBOOT_IMAGE_NUMBER == 2) && defined(PM_B0_ADDRESS) && \
       !defined(CONFIG_NRF53_MULTI_IMAGE_UPDATE)
 
@@ -42,6 +43,8 @@ extern uint32_t _image_1_primary_slot_id[];
 #else  /* MCUBOOT_IMAGE_NUMBER == 2) && defined(PM_B0_ADDRESS) && \
         * !defined(CONFIG_NRF53_MULTI_IMAGE_UPDATE)
         */
+#endif
+#endif
 
 /* Each pair of slots is separated by , and there is no terminating character */
 #define FLASH_AREA_IMAGE_0_SLOTS    PM_MCUBOOT_PRIMARY_ID, PM_MCUBOOT_SECONDARY_ID
@@ -81,7 +84,8 @@ static inline uint32_t __flash_area_ids_for_slot(int img, int slot)
 #define FLASH_AREA_IMAGE_SCRATCH    PM_MCUBOOT_SCRATCH_ID
 #endif
 
-#endif /* MCUBOOT_IMAGE_NUMBER == 2) && defined(PM_B0_ADDRESS) && \
+// #endif
+ /* MCUBOOT_IMAGE_NUMBER == 2) && defined(PM_B0_ADDRESS) && \
         * !defined(CONFIG_NRF53_MULTI_IMAGE_UPDATE)
         */
 

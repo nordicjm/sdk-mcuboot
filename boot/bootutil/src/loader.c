@@ -132,9 +132,10 @@ boot_read_image_headers(struct boot_loader_state *state, bool require_all,
              * of mcuboot has happened (filling S1 with the new version).
              */
 //??????
-            if (BOOT_CURR_IMG(state) == CONFIG_MCUBOOT_MCUBOOT_IMAGE_NUMBER && i == 0) {
-                continue;
-            }
+LOG_ERR("what is this doing");
+//            if (BOOT_CURR_IMG(state) == CONFIG_MCUBOOT_MCUBOOT_IMAGE_NUMBER && i == 0) {
+//                continue;
+//            }
 #endif /* PM_S1_ADDRESS */
             if (i > 0 && !require_all) {
                 return 0;
@@ -1120,13 +1121,23 @@ boot_validate_slot(struct boot_loader_state *state, int slot,
 #endif
 #ifdef PM_S1_ADDRESS
         if (BOOT_CURR_IMG(state) == CONFIG_MCUBOOT_MCUBOOT_IMAGE_NUMBER) {
-#if (CONFIG_FLASH_LOAD_SIZE == PM_S0_ADDRESS)
-            min_addr = PM_S1_ADDRESS;
-            max_addr = (PM_S1_ADDRESS + PM_S1_SIZE);
-#elif (CONFIG_FLASH_LOAD_SIZE == PM_S1_ADDRESS)
-            min_addr = PM_S0_ADDRESS;
-            max_addr = (PM_S0_ADDRESS + PM_S0_SIZE);
+LOG_ERR("c1");
+            if ((reset_value >= PM_S0_ADDRESS && PM_S0_ADDRESS <= (PM_S0_ADDRESS + PM_S0_SIZE)) ||
+            (reset_value >= PM_S1_ADDRESS && PM_S1_ADDRESS <= (PM_S1_ADDRESS + PM_S1_SIZE))) {
+LOG_ERR("c3");
+#if (CONFIG_NCS_IS_VARIANT_IMAGE)
+                min_addr = PM_S0_ADDRESS;
+                max_addr = (PM_S0_ADDRESS + PM_S0_SIZE);
+#else
+LOG_ERR("c2");
+                min_addr = PM_S1_ADDRESS;
+                max_addr = (PM_S1_ADDRESS + PM_S1_SIZE);
 #endif
+            } else {
+LOG_ERR("c4");
+                min_addr = pri_fa->fa_off;
+                max_addr = pri_fa->fa_off + pri_fa->fa_size;
+            }
         } else
 #endif
         {
@@ -1333,6 +1344,7 @@ boot_validated_swap_type(struct boot_loader_state *state,
         if(reset_addr < PM_CPUNET_B0N_ADDRESS)
 #endif
         {
+LOG_ERR("d1");
             const struct flash_area *primary_fa;
             rc = flash_area_open(flash_area_id_from_multi_image_slot(
                                  BOOT_CURR_IMG(state), BOOT_PRIMARY_SLOT),
@@ -1347,6 +1359,7 @@ boot_validated_swap_type(struct boot_loader_state *state,
 #else
             if (reset_addr >= PM_S1_ADDRESS && PM_S1_ADDRESS <= (PM_S1_ADDRESS + PM_S1_SIZE)) {
 #endif
+LOG_ERR("d2");
                 const struct flash_area *nsib_fa;
 
                 /* NSIB upgrade slot */
@@ -1365,14 +1378,28 @@ boot_validated_swap_type(struct boot_loader_state *state,
                 /* Set primary to be NSIB upgrade slot */
                 BOOT_IMG_AREA(state, 0) = nsib_fa;
                 owner_nsib[BOOT_CURR_IMG(state)] = true;
+LOG_ERR("d3");
+#if (CONFIG_NCS_IS_VARIANT_IMAGE)
+            } else if (reset_addr >= PM_S1_ADDRESS && PM_S1_ADDRESS <= (PM_S1_ADDRESS + PM_S1_SIZE)) {
+#else
+            } else if (reset_addr >= PM_S0_ADDRESS && PM_S0_ADDRESS <= (PM_S0_ADDRESS + PM_S0_SIZE)) {
+#endif
+                /* NSIB upgrade but for the wrong slot, must be erased */
+                LOG_ERR("Image in slot is for wrong s0/s1 image");
+            flash_area_erase(secondary_fa, 0, secondary_fa->fa_size);
+//            fih_rc = FIH_NO_BOOTABLE_IMAGE;
+                return BOOT_SWAP_TYPE_FAIL;
+
             } else if (reset_addr < primary_fa->fa_off || reset_addr > (primary_fa->fa_off + primary_fa->fa_size)) {
                 /* The image in the secondary slot is not intended for any */
+LOG_ERR("d4");
                 return BOOT_SWAP_TYPE_NONE;
             }
 
-//            if ((primary_fa->fa_off == PM_S0_ADDRESS) || (primary_fa->fa_off == PM_S1_ADDRESS)) {
-//                owner_nsib[BOOT_CURR_IMG(state)] = true;
-//            }
+            if ((primary_fa->fa_off == PM_S0_ADDRESS) || (primary_fa->fa_off == PM_S1_ADDRESS)) {
+LOG_ERR("d5");
+                owner_nsib[BOOT_CURR_IMG(state)] = true;
+            }
         }
 #endif /* PM_S1_ADDRESS */
         sec_slot_mark_assigned(state);

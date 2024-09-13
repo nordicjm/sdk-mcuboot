@@ -1908,9 +1908,9 @@ boot_swap_image(struct boot_loader_state *state, struct boot_status *bs)
         /* For NSIB, move the image instead of swapping it */
         fap = BOOT_IMG_AREA(state, BOOT_PRIMARY_SLOT);
         nsib_swap_run(state, bs, fap->fa_size);
-    }
+    } else
 #endif
-    else {
+    {
         swap_run(state, bs, copy_size);
     }
 

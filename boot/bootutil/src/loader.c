@@ -1903,7 +1903,16 @@ boot_swap_image(struct boot_loader_state *state, struct boot_status *bs)
         flash_area_close(fap);
     }
 
-    swap_run(state, bs, copy_size);
+#if defined(PM_S1_ADDRESS) && !MCUBOOT_OVERWRITE_ONLY && CONFIG_MCUBOOT_MCUBOOT_IMAGE_NUMBER != -1
+    if (owner_nsib[BOOT_CURR_IMG(state)]) {
+        /* For NSIB, move the image instead of swapping it */
+        fap = BOOT_IMG_AREA(state, BOOT_PRIMARY_SLOT);
+        nsib_swap_run(state, bs, fap->fa_size);
+    }
+#endif
+    else {
+        swap_run(state, bs, copy_size);
+    }
 
 #ifdef MCUBOOT_VALIDATE_PRIMARY_SLOT
     extern int boot_status_fails;

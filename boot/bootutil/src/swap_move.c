@@ -459,27 +459,6 @@ boot_swap_sectors(int idx, uint32_t sz, struct boot_loader_state *state,
     }
 }
 
-static void
-boot_copy_sectors(int idx, uint32_t sz, struct boot_loader_state *state,
-        struct boot_status *bs, const struct flash_area *fap_pri,
-        const struct flash_area *fap_sec)
-{
-    uint32_t pri_off;
-    uint32_t pri_up_off;
-    uint32_t sec_off;
-    int rc;
-
-    pri_up_off = boot_img_sector_off(state, BOOT_PRIMARY_SLOT, idx);
-    pri_off = boot_img_sector_off(state, BOOT_PRIMARY_SLOT, idx - 1);
-    sec_off = boot_img_sector_off(state, BOOT_SECONDARY_SLOT, idx - 1);
-
-        rc = boot_erase_region(fap_pri, pri_off, sz);
-        assert(rc == 0);
-
-        rc = boot_copy_region(state, fap_sec, fap_pri, sec_off, pri_off, sz);
-        assert(rc == 0);
-}
-
 /*
  * When starting a revert the swap status exists in the primary slot, and
  * the status in the secondary slot is erased. To start the swap, the status
@@ -547,7 +526,6 @@ swap_run(struct boot_loader_state *state, struct boot_status *bs,
 
     last_idx = find_last_idx(state, copy_size);
     sector_sz = boot_img_sector_size(state, BOOT_PRIMARY_SLOT, 0);
-LOG_ERR("last_idx: %d, copy_size: %d", last_idx, copy_size);
 
     /*
      * When starting a new swap upgrade, check that there is enough space.
@@ -577,36 +555,14 @@ LOG_ERR("last_idx: %d, copy_size: %d", last_idx, copy_size);
 
     image_index = BOOT_CURR_IMG(state);
 
-//TODO: these need to run for nsib only
-//    rc = flash_area_open(FLASH_AREA_IMAGE_PRIMARY(image_index), &fap_pri);
-//    assert (rc == 0);
-
-#if (CONFIG_NCS_IS_VARIANT_IMAGE)
-                rc = flash_area_open(PM_S0_ID, &fap_pri);
-#else
-                rc = flash_area_open(PM_S1_ID, &fap_pri);
-#endif
-
+    rc = flash_area_open(FLASH_AREA_IMAGE_PRIMARY(image_index), &fap_pri);
+    assert (rc == 0);
 
     rc = flash_area_open(FLASH_AREA_IMAGE_SECONDARY(image_index), &fap_sec);
     assert (rc == 0);
 
     fixup_revert(state, bs, fap_sec);
 
-#if 1
-if (copy_size > fap_pri->fa_size) {
-    last_idx = find_last_idx(state, fap_pri->fa_size);
-}
-    idx = 1;
-    while (idx <= last_idx) {
-        if (idx >= bs->idx) {
-            boot_copy_sectors(idx, sector_sz, state, bs, fap_pri, fap_sec);
-        }
-        idx++;
-    }
-
-    rc = boot_erase_region(fap_sec, 0, fap_sec->fa_size);
-#else
     if (bs->op == BOOT_STATUS_OP_MOVE) {
         idx = last_idx;
         while (idx > 0) {
@@ -627,7 +583,6 @@ if (copy_size > fap_pri->fa_size) {
         }
         idx++;
     }
-#endif
 
     flash_area_close(fap_pri);
     flash_area_close(fap_sec);

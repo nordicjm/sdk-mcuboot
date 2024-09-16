@@ -1109,6 +1109,8 @@ boot_validate_slot(struct boot_loader_state *state, int slot,
 
         uint32_t min_addr, max_addr;
 
+LOG_ERR("check %d", BOOT_CURR_IMG(state));
+
 #ifdef PM_CPUNET_APP_ADDRESS
         /* The primary slot for the network core is emulated in RAM.
          * Its flash_area hasn't got relevant boundaries.
@@ -1908,11 +1910,15 @@ boot_swap_image(struct boot_loader_state *state, struct boot_status *bs)
         flash_area_close(fap);
     }
 
+LOG_ERR("check2 %d is %d", BOOT_CURR_IMG(state), owner_nsib[BOOT_CURR_IMG(state)]);
+
 #if defined(PM_S1_ADDRESS) && !MCUBOOT_OVERWRITE_ONLY && CONFIG_MCUBOOT_MCUBOOT_IMAGE_NUMBER != -1
     if (owner_nsib[BOOT_CURR_IMG(state)]) {
+if (BOOT_CURR_IMG(state) == CONFIG_MCUBOOT_MCUBOOT_IMAGE_NUMBER) {
         /* For NSIB, move the image instead of swapping it */
         fap = BOOT_IMG_AREA(state, BOOT_PRIMARY_SLOT);
         nsib_swap_run(state, bs, fap->fa_size);
+}
     } else
 #endif
     {
@@ -2559,7 +2565,7 @@ context_boot_go(struct boot_loader_state *state, struct boot_rsp *rsp)
             assert(rc == 0);
 #if defined(PM_S1_ADDRESS) && defined(CONFIG_REBOOT)
             if (owner_nsib[BOOT_CURR_IMG(state)]) {
-                    sys_reboot(SYS_REBOOT_COLD);
+//                    sys_reboot(SYS_REBOOT_COLD);
 
             }
 #endif

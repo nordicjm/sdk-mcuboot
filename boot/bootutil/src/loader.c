@@ -1121,7 +1121,6 @@ LOG_ERR("check %d", BOOT_CURR_IMG(state));
             max_addr = PM_CPUNET_APP_ADDRESS + PM_CPUNET_APP_SIZE;
         } else
 #endif
-#if 0
 #if CONFIG_MCUBOOT_MCUBOOT_IMAGE_NUMBER != -1
         if (BOOT_CURR_IMG(state) == CONFIG_MCUBOOT_MCUBOOT_IMAGE_NUMBER) {
 LOG_ERR("c1");
@@ -1135,7 +1134,6 @@ LOG_ERR("c2");
 #endif
 LOG_ERR("c4");
         } else
-#endif
 #endif
         if (BOOT_CURR_IMG(state) == CONFIG_MCUBOOT_APPLICATION_IMAGE_NUMBER) {
 #if CONFIG_MCUBOOT_MCUBOOT_IMAGE_NUMBER != -1
@@ -1154,7 +1152,7 @@ LOG_ERR("c4");
 
 LOG_ERR("check between %d and %d", min_addr, max_addr);
 
-        if (reset_value < min_addr || reset_value > max_addr)) {
+        if (reset_value < min_addr || reset_value > max_addr) {
             BOOT_LOG_ERR("Reset address of image in secondary slot is not in the primary slot");
             BOOT_LOG_ERR("Erasing image from secondary slot");
 
@@ -2646,7 +2644,7 @@ context_boot_go(struct boot_loader_state *state, struct boot_rsp *rsp)
          * does not need to also be validated by MCUBoot.
          */
         bool image_validated_by_nsib = BOOT_CURR_IMG(state) ==
-                                       CONFIG_MCUBOOT_NETWORK_CORE_IMAGE_NUMBER;
+                                       CONFIG_MCUBOOT_MCUBOOT_IMAGE_NUMBER;
         if (!image_validated_by_nsib)
 #endif
         {

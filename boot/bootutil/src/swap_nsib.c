@@ -79,8 +79,7 @@ static int app_max_sectors(struct boot_loader_state *state)
 #endif
 
 void
-nsib_swap_run(struct boot_loader_state *state, struct boot_status *bs,
-         uint32_t copy_size)
+nsib_swap_run(struct boot_loader_state *state, struct boot_status *bs)
 {
     uint32_t sz;
     uint32_t sector_sz;
@@ -95,8 +94,7 @@ nsib_swap_run(struct boot_loader_state *state, struct boot_status *bs,
 
     BOOT_LOG_INF("Starting swap using nsib algorithm.");
 
-    last_idx = find_last_idx(state, copy_size);
-    sector_sz = boot_img_sector_size(state, BOOT_PRIMARY_SLOT, 0);
+    sector_sz = boot_img_sector_size(state, BOOT_SECONDARY_SLOT, 0);
 
 #if (CONFIG_NCS_IS_VARIANT_IMAGE)
     rc = flash_area_open(PM_S0_ID, &fap_pri);
@@ -105,7 +103,6 @@ nsib_swap_run(struct boot_loader_state *state, struct boot_status *bs,
 #endif
     assert (rc == 0);
 
-LOG_ERR("last_idx: %d, size: %d, should be: %d", last_idx, copy_size, fap_pri->fa_size);
     /*
      * When starting a new swap upgrade, check that there is enough space.
      */
@@ -142,25 +139,13 @@ LOG_ERR("last_idx: %d, size: %d, should be: %d", last_idx, copy_size, fap_pri->f
     rc = boot_erase_region(fap_pri, 0, fap_pri->fa_size);
     assert(rc == 0);
 
-    idx = 1;
-    while (idx <= last_idx) {
-        if (idx >= bs->idx) {
-            uint32_t pri_off;
-            uint32_t pri_up_off;
-            uint32_t sec_off;
+    rc = boot_copy_region(state, fap_sec, fap_pri, 0, 0, fap_pri->fa_size);
+    assert(rc == 0);
 
-            pri_up_off = boot_img_sector_off(state, BOOT_PRIMARY_SLOT, idx);
-            pri_off = boot_img_sector_off(state, BOOT_PRIMARY_SLOT, idx - 1);
-            sec_off = boot_img_sector_off(state, BOOT_SECONDARY_SLOT, idx - 1);
+    rc = swap_erase_trailer_sectors(state, fap_sec);
+    assert(rc == 0);
 
-            rc = boot_copy_region(state, fap_sec, fap_pri, sec_off, pri_off, sz);
-            assert(rc == 0);
-        }
-        idx++;
-    }
-
-//    rc = swap_erase_trailer_sectors(state, fap_sec);
-    rc = boot_erase_region(fap_sec, 0, fap_sec->fa_size);
+    rc = boot_erase_region(fap_sec, 0, MIN((fap_pri->fa_size + sector_sz), fap_sec->fa_size));
     assert(rc == 0);
 
     flash_area_close(fap_pri);

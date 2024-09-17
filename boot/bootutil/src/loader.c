@@ -1916,11 +1916,16 @@ LOG_ERR("check2 %d is %d", BOOT_CURR_IMG(state), owner_nsib[BOOT_CURR_IMG(state)
 
 #if defined(PM_S1_ADDRESS) && !MCUBOOT_OVERWRITE_ONLY && CONFIG_MCUBOOT_MCUBOOT_IMAGE_NUMBER != -1
     if (owner_nsib[BOOT_CURR_IMG(state)]) {
-if (BOOT_CURR_IMG(state) == CONFIG_MCUBOOT_MCUBOOT_IMAGE_NUMBER) {
-        /* For NSIB, move the image instead of swapping it */
-        fap = BOOT_IMG_AREA(state, BOOT_PRIMARY_SLOT);
-        nsib_swap_run(state, bs, fap->fa_size);
-}
+        if (BOOT_CURR_IMG(state) == CONFIG_MCUBOOT_MCUBOOT_IMAGE_NUMBER) {
+            /* For NSIB, move the image instead of swapping it */
+            nsib_swap_run(state, bs);
+
+#if defined(CONFIG_REBOOT)
+            /* Should also reboot at this point so the new S0/S1 update is applied */
+            sys_reboot(SYS_REBOOT_COLD);
+#endif
+
+        }
     } else
 #endif
     {
@@ -2565,11 +2570,6 @@ context_boot_go(struct boot_loader_state *state, struct boot_rsp *rsp)
                 rc = boot_perform_update(state, &bs);
             }
             assert(rc == 0);
-#if defined(PM_S1_ADDRESS) && defined(CONFIG_REBOOT)
-            if (owner_nsib[BOOT_CURR_IMG(state)]) {
-//                    sys_reboot(SYS_REBOOT_COLD);
-            }
-#endif
             break;
 
         case BOOT_SWAP_TYPE_FAIL:

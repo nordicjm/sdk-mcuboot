@@ -1121,6 +1121,7 @@ LOG_ERR("check %d", BOOT_CURR_IMG(state));
             max_addr = PM_CPUNET_APP_ADDRESS + PM_CPUNET_APP_SIZE;
         } else
 #endif
+#if 0
 #if CONFIG_MCUBOOT_MCUBOOT_IMAGE_NUMBER != -1
         if (BOOT_CURR_IMG(state) == CONFIG_MCUBOOT_MCUBOOT_IMAGE_NUMBER) {
 LOG_ERR("c1");
@@ -1134,6 +1135,7 @@ LOG_ERR("c2");
 #endif
 LOG_ERR("c4");
         } else
+#endif
 #endif
         if (BOOT_CURR_IMG(state) == CONFIG_MCUBOOT_APPLICATION_IMAGE_NUMBER) {
 #if CONFIG_MCUBOOT_MCUBOOT_IMAGE_NUMBER != -1
@@ -1150,7 +1152,7 @@ LOG_ERR("c4");
 #endif
         }
 
-        if (reset_value < min_addr || reset_value> (max_addr)) {
+        if (reset_value < min_addr || reset_value > max_addr)) {
             BOOT_LOG_ERR("Reset address of image in secondary slot is not in the primary slot");
             BOOT_LOG_ERR("Erasing image from secondary slot");
 
@@ -1256,7 +1258,7 @@ static inline void sec_slot_mark_assigned(struct boot_loader_state *state)
 }
 
 /**
- * Cleanu up all secondary slot which couldn't be assigned to any primary slot.
+ * Cleanup up all secondary slot which couldn't be assigned to any primary slot.
  *
  * This function erases content of each secondary slot which contains valid
  * header but couldn't be assigned to any of supported primary images.
@@ -2566,7 +2568,6 @@ context_boot_go(struct boot_loader_state *state, struct boot_rsp *rsp)
 #if defined(PM_S1_ADDRESS) && defined(CONFIG_REBOOT)
             if (owner_nsib[BOOT_CURR_IMG(state)]) {
 //                    sys_reboot(SYS_REBOOT_COLD);
-
             }
 #endif
             break;
@@ -2642,7 +2643,8 @@ context_boot_go(struct boot_loader_state *state, struct boot_rsp *rsp)
          * executing MCUBoot image, and is therefore already validated by NSIB and
          * does not need to also be validated by MCUBoot.
          */
-        bool image_validated_by_nsib = BOOT_CURR_IMG(state) == 1;
+        bool image_validated_by_nsib = BOOT_CURR_IMG(state) ==
+                                       CONFIG_MCUBOOT_NETWORK_CORE_IMAGE_NUMBER;
         if (!image_validated_by_nsib)
 #endif
         {

@@ -136,6 +136,8 @@ boot_read_image_headers(struct boot_loader_state *state, bool require_all,
 LOG_ERR("what is this doing");
                 continue;
             }
+#elif defined(LEGACY_CHILD_PARENT_S0_S1_UPDATE_ENABLED)
+#todo
 #endif /* CONFIG_MCUBOOT_MCUBOOT_IMAGE_NUMBER != -1 */
             if (i > 0 && !require_all) {
                 return 0;
@@ -1121,6 +1123,7 @@ LOG_ERR("check %d", BOOT_CURR_IMG(state));
             max_addr = PM_CPUNET_APP_ADDRESS + PM_CPUNET_APP_SIZE;
         } else
 #endif
+#ifndef LEGACY_CHILD_PARENT_S0_S1_UPDATE_ENABLED
 #if CONFIG_MCUBOOT_MCUBOOT_IMAGE_NUMBER != -1
         if (BOOT_CURR_IMG(state) == CONFIG_MCUBOOT_MCUBOOT_IMAGE_NUMBER) {
 LOG_ERR("c1");
@@ -1149,6 +1152,9 @@ LOG_ERR("c4");
             max_addr = pri_fa->fa_off + pri_fa->fa_size;
 #endif
         }
+#else
+#todo
+#endif /* !LEGACY_CHILD_PARENT_S0_S1_UPDATE_ENABLED */
 
 LOG_ERR("check between %d and %d", min_addr, max_addr);
 
@@ -1914,9 +1920,13 @@ boot_swap_image(struct boot_loader_state *state, struct boot_status *bs)
 
 LOG_ERR("check2 %d is %d", BOOT_CURR_IMG(state), owner_nsib[BOOT_CURR_IMG(state)]);
 
-#if defined(PM_S1_ADDRESS) && !MCUBOOT_OVERWRITE_ONLY && CONFIG_MCUBOOT_MCUBOOT_IMAGE_NUMBER != -1
+#if defined(PM_S1_ADDRESS) && !MCUBOOT_OVERWRITE_ONLY && (CONFIG_MCUBOOT_MCUBOOT_IMAGE_NUMBER != -1 || defined(LEGACY_CHILD_PARENT_S0_S1_UPDATE_ENABLED))
     if (owner_nsib[BOOT_CURR_IMG(state)]) {
+#ifndef LEGACY_CHILD_PARENT_S0_S1_UPDATE_ENABLED
+        if (BOOT_CURR_IMG(state) == 1) {
+#else
         if (BOOT_CURR_IMG(state) == CONFIG_MCUBOOT_MCUBOOT_IMAGE_NUMBER) {
+#endif
             /* For NSIB, move the image instead of swapping it */
             nsib_swap_run(state, bs);
 
@@ -2643,8 +2653,13 @@ context_boot_go(struct boot_loader_state *state, struct boot_rsp *rsp)
          * executing MCUBoot image, and is therefore already validated by NSIB and
          * does not need to also be validated by MCUBoot.
          */
+#ifndef LEGACY_CHILD_PARENT_S0_S1_UPDATE_ENABLED
         bool image_validated_by_nsib = BOOT_CURR_IMG(state) ==
                                        CONFIG_MCUBOOT_MCUBOOT_IMAGE_NUMBER;
+#else
+        bool image_validated_by_nsib = BOOT_CURR_IMG(state) == 1;
+#endif
+
         if (!image_validated_by_nsib)
 #endif
         {

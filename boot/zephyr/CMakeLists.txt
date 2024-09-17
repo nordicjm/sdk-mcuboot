@@ -533,6 +533,16 @@ if(SYSBUILD)
 
   set(mcuboot_image_footer_size ${required_size} CACHE INTERNAL "Estimated MCUboot image trailer size" FORCE)
   set(mcuboot_image_upgrade_footer_size ${required_upgrade_size} CACHE INTERNAL "Estimated MCUboot update image trailer size" FORCE)
+else()
+  # Check if this is a legacy child/parent image build
+  cmake_path(GET CMAKE_BINARY_DIR PARENT_PATH parent_build_dir)
+  string(LENGTH ${parent_build_dir} parent_build_dir_len)
+  math(EXPR parent_build_dir_len "${parent_build_dir_len} + 1")
+  string(SUBSTRING ${CMAKE_BINARY_DIR} ${parent_build_dir_len} -1 current_dir_name)
+
+  if("${current_dir_name}" STREQUAL "mcuboot" AND EXISTS ${parent_build_dir}/image_preload.cmake)
+    zephyr_compile_definitions(LEGACY_CHILD_PARENT_BUILD=1)
+  endif()
 endif()
 
 if(CONFIG_MCUBOOT_NRF_CLEANUP_PERIPHERAL OR CONFIG_MCUBOOT_CLEANUP_NONSECURE_RAM)

@@ -132,8 +132,8 @@ boot_read_image_headers(struct boot_loader_state *state, bool require_all,
              * of mcuboot has happened (filling S1 with the new version).
              */
 //??????
-LOG_ERR("what is this doing");
             if (BOOT_CURR_IMG(state) == CONFIG_MCUBOOT_MCUBOOT_IMAGE_NUMBER && i == 0) {
+LOG_ERR("what is this doing");
                 continue;
             }
 #endif /* CONFIG_MCUBOOT_MCUBOOT_IMAGE_NUMBER != -1 */
@@ -1151,6 +1151,8 @@ LOG_ERR("c4");
             max_addr = pri_fa->fa_off + pri_fa->fa_size;
 #endif
         }
+
+LOG_ERR("check between %d and %d", min_addr, max_addr);
 
         if (reset_value < min_addr || reset_value > max_addr)) {
             BOOT_LOG_ERR("Reset address of image in secondary slot is not in the primary slot");

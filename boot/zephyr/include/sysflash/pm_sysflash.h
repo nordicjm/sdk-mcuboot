@@ -41,6 +41,7 @@
 extern uint32_t _image_1_primary_slot_id[];
 #define MCUBOOT_S0_S1_SLOTS (uint32_t)_image_1_primary_slot_id, PM_MCUBOOT_SECONDARY_ID,
 #define LEGACY_CHILD_PARENT_S0_S1_UPDATE_ENABLED 1
+#define LEGACY_CHILD_PARENT_S0_S1_UPDATE_IMAGE_ID (MCUBOOT_IMAGE_NUMBER - 1)
 #endif  /* defined(PM_B0_ADDRESS) */
 #endif
 

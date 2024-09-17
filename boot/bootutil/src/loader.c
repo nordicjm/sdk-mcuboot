@@ -137,7 +137,14 @@ LOG_ERR("what is this doing");
                 continue;
             }
 #elif defined(LEGACY_CHILD_PARENT_S0_S1_UPDATE_ENABLED)
-#todo
+            /* Patch needed for NCS. The primary slot of the second image
+             * (image 1) will not contain a valid image header until an upgrade
+             * of mcuboot has happened (filling S1 with the new version).
+             */
+            if (BOOT_CURR_IMG(state) == LEGACY_CHILD_PARENT_S0_S1_UPDATE_IMAGE_ID && i == 0) {
+LOG_ERR("what is this doing");
+                continue;
+            }
 #endif /* CONFIG_MCUBOOT_MCUBOOT_IMAGE_NUMBER != -1 */
             if (i > 0 && !require_all) {
                 return 0;
@@ -1124,6 +1131,7 @@ LOG_ERR("check %d", BOOT_CURR_IMG(state));
         } else
 #endif
 #ifndef LEGACY_CHILD_PARENT_S0_S1_UPDATE_ENABLED
+        /* Sysbuild */
 #if CONFIG_MCUBOOT_MCUBOOT_IMAGE_NUMBER != -1
         if (BOOT_CURR_IMG(state) == CONFIG_MCUBOOT_MCUBOOT_IMAGE_NUMBER) {
 LOG_ERR("c1");
@@ -1153,7 +1161,19 @@ LOG_ERR("c4");
 #endif
         }
 #else
-#todo
+        /* Legacy child/parent support */
+        if (BOOT_CURR_IMG(state) == LEGACY_CHILD_PARENT_S0_S1_UPDATE_IMAGE_ID) {
+#if (CONFIG_NCS_IS_VARIANT_IMAGE)
+            min_addr = MIN(pri_fa->fa_off, PM_S0_ADDRESS);
+            max_addr = MAX((pri_fa->fa_off + pri_fa->fa_size), (PM_S0_ADDRESS + PM_S0_SIZE));
+#else
+            min_addr = MIN(pri_fa->fa_off, PM_S1_ADDRESS);
+            max_addr = MAX((pri_fa->fa_off + pri_fa->fa_size), (PM_S1_ADDRESS + PM_S1_SIZE));
+#endif
+        } else {
+            min_addr = pri_fa->fa_off;
+            max_addr = pri_fa->fa_off + pri_fa->fa_size;
+        }
 #endif /* !LEGACY_CHILD_PARENT_S0_S1_UPDATE_ENABLED */
 
 LOG_ERR("check between %d and %d", min_addr, max_addr);
@@ -1923,9 +1943,11 @@ LOG_ERR("check2 %d is %d", BOOT_CURR_IMG(state), owner_nsib[BOOT_CURR_IMG(state)
 #if defined(PM_S1_ADDRESS) && !MCUBOOT_OVERWRITE_ONLY && (CONFIG_MCUBOOT_MCUBOOT_IMAGE_NUMBER != -1 || defined(LEGACY_CHILD_PARENT_S0_S1_UPDATE_ENABLED))
     if (owner_nsib[BOOT_CURR_IMG(state)]) {
 #ifndef LEGACY_CHILD_PARENT_S0_S1_UPDATE_ENABLED
-        if (BOOT_CURR_IMG(state) == 1) {
-#else
+        /* Sysbuild */
         if (BOOT_CURR_IMG(state) == CONFIG_MCUBOOT_MCUBOOT_IMAGE_NUMBER) {
+#else
+        /* Legacy child/parent support */
+        if (BOOT_CURR_IMG(state) == LEGACY_CHILD_PARENT_S0_S1_UPDATE_IMAGE_ID) {
 #endif
             /* For NSIB, move the image instead of swapping it */
             nsib_swap_run(state, bs);

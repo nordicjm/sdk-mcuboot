@@ -28,6 +28,8 @@
 
 #include "mcuboot_config/mcuboot_config.h"
 
+#if CONFIG_MCUBOOT_MCUBOOT_IMAGE_NUMBER != -1 || LEGACY_CHILD_PARENT_S0_S1_UPDATE_ENABLED
+
 BOOT_LOG_MODULE_DECLARE(mcuboot);
 
 #if 0
@@ -149,3 +151,5 @@ void nsib_swap_run(struct boot_loader_state *state, struct boot_status *bs)
     flash_area_close(fap_pri);
     flash_area_close(fap_sec);
 }
+
+#endif

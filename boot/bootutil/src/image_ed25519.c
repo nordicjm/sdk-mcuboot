@@ -92,14 +92,17 @@ bootutil_verify(uint8_t *buf, uint32_t blen,
 {
     int rc;
     FIH_DECLARE(fih_rc, FIH_FAILURE);
-    uint8_t *pubkey;
+    uint8_t *pubkey = NULL;
+#if !defined(CONFIG_BOOT_SIGNATURE_USING_KMU)
     uint8_t *end;
+#endif
 
     if (blen != IMAGE_HASH_SIZE || slen != EDDSA_SIGNATURE_LENGTH) {
         FIH_SET(fih_rc, FIH_FAILURE);
         goto out;
     }
 
+#if !defined(CONFIG_BOOT_SIGNATURE_USING_KMU)
     pubkey = (uint8_t *)bootutil_keys[key_id].key;
     end = pubkey + *bootutil_keys[key_id].len;
 
@@ -121,6 +124,7 @@ bootutil_verify(uint8_t *buf, uint32_t blen,
     }
 
     pubkey = end - NUM_ED25519_BYTES;
+#endif
 #endif
 
     rc = ED25519_verify(buf, blen, sig, pubkey);

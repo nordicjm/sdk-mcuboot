@@ -877,7 +877,7 @@ bootutil_img_validate(struct boot_loader_state *state,
         }
 
 #ifdef EXPECTED_SIG_TLV
-#ifdef EXPECTED_KEY_TLV
+#if !defined(CONFIG_BOOT_SIGNATURE_USING_KMU) && defined(EXPECTED_KEY_TLV)
         rc = bootutil_tlv_iter_begin(&it, hdr, fap, EXPECTED_KEY_TLV, false);
         if (rc) {
             goto out;
@@ -923,7 +923,7 @@ bootutil_img_validate(struct boot_loader_state *state,
                  */
             }
         }
-#endif /* EXPECTED_KEY_TLV */
+#endif /* !CONFIG_BOOT_SIGNATURE_USING_KMU && EXPECTED_KEY_TLV */
 
         rc = bootutil_tlv_iter_begin(&it, hdr, fap, IMAGE_TLV_DECOMP_SIGNATURE, true);
         if (rc) {
@@ -946,10 +946,12 @@ bootutil_img_validate(struct boot_loader_state *state,
 
             if (type == IMAGE_TLV_DECOMP_SIGNATURE) {
                 /* Ignore this signature if it is out of bounds. */
+#if !defined(CONFIG_BOOT_SIGNATURE_USING_KMU)
                 if (key_id < 0 || key_id >= bootutil_key_cnt) {
                     key_id = -1;
                     continue;
                 }
+#endif
 
                 if (!EXPECTED_SIG_LEN(len) || len > sizeof(buf)) {
                     rc = -1;

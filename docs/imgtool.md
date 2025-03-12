@@ -163,7 +163,7 @@ existing in the file should not change.
 
 The `--compression` option enables LZMA compression over payload. Details
 about internals of image generated with this option can be found here
-[here](./compression_format.md)
+[here](compression_format.md)
 This isn't fully supported on the embedded side but can be utilised when
 project is built on top of the mcuboot.
 

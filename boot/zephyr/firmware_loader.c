@@ -108,8 +108,16 @@ static fih_ret validate_image_slot(int slot, struct boot_rsp *rsp)
     int rc = -1;
     FIH_DECLARE(fih_rc, FIH_FAILURE);
 
+extern int get_alternative_slot(int slot, const struct flash_area **fa);
+
+#if 1
+rc = get_alternative_slot(slot, &_fa_p);
+#else
     rc = flash_area_open(slot, &_fa_p);
+#endif
     assert(rc == 0);
+
+LOG_ERR("is at %d, %p, %ld, %d", _fa_p->fa_id, _fa_p->fa_dev, _fa_p->fa_off, _fa_p->fa_size);
 
     rc = boot_image_load_header(_fa_p, &_hdr);
     if (rc != 0) {

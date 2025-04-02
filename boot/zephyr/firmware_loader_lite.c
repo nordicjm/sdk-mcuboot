@@ -2,7 +2,7 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * Copyright (c) 2020 Arm Limited
- * Copyright (c) 2020-2023 Nordic Semiconductor ASA
+ * Copyright (c) 2020-2025 Nordic Semiconductor ASA
  */
 
 #include <assert.h>
@@ -19,6 +19,8 @@
 #include "mcuboot_config/mcuboot_config.h"
 
 BOOT_LOG_MODULE_DECLARE(mcuboot);
+
+extern int get_alternative_slot(int slot, const struct flash_area **fa);
 
 /* Variables passed outside of unit via poiters. */
 static const struct flash_area *_fa_p;
@@ -108,7 +110,7 @@ static fih_ret validate_image_slot(int slot, struct boot_rsp *rsp)
     int rc = -1;
     FIH_DECLARE(fih_rc, FIH_FAILURE);
 
-    rc = flash_area_open(slot, &_fa_p);
+    rc = get_alternative_slot(slot, &_fa_p);
     assert(rc == 0);
 
 LOG_ERR("is at %d, %p, %ld, %d", _fa_p->fa_id, _fa_p->fa_dev, _fa_p->fa_off, _fa_p->fa_size);
@@ -157,6 +159,8 @@ boot_go(struct boot_rsp *rsp)
 {
     bool boot_firmware_loader = false;
     FIH_DECLARE(fih_rc, FIH_FAILURE);
+
+//add logic here
 
 #ifdef CONFIG_BOOT_FIRMWARE_LOADER_ENTRANCE_GPIO
     if (io_detect_pin() &&

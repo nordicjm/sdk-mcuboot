@@ -114,6 +114,9 @@ static fih_ret validate_image_slot(int slot, struct boot_rsp *rsp)
     assert(rc == 0);
 
 LOG_ERR("is at %d, %p, %ld, %d", _fa_p->fa_id, _fa_p->fa_dev, _fa_p->fa_off, _fa_p->fa_size);
+    if (rc) {
+        FIH_RET(fih_rc);
+    }
 
     rc = boot_image_load_header(_fa_p, &_hdr);
     if (rc != 0) {

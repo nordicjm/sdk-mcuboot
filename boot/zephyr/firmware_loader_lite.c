@@ -23,13 +23,32 @@
 
 BOOT_LOG_MODULE_DECLARE(mcuboot);
 
-extern int get_alternative_slot(int slot, const struct flash_area **fa);
+static struct flash_area fa_app_installer = {
+    .fa_id = 1,
+    .fa_off = APP_PARTITION_START,
+.fa_size = APP_PARTITION_SIZE, //need to deal with this being dynamic in future
+//        .fa_dev = DEVICE_DT_GET(DT_MTD_FROM_FIXED_PARTITION(slot0_partition)),
+    .fa_dev = DEVICE_DT_GET(DT_CHOSEN(zephyr_flash_controller)),
+};
 
-/* Variables passed outside of unit via poiters. */
-static const struct flash_area *_fa_p;
-static struct image_header _hdr = { 0 };
+static struct image_header hdr_app_installer = { 0 };
 
-#if defined(MCUBOOT_VALIDATE_PRIMARY_SLOT) || defined(MCUBOOT_VALIDATE_PRIMARY_SLOT_ONCE)
+static struct flash_area fa_softdevice = {
+    .fa_id = 2,
+    .fa_dev = DEVICE_DT_GET(DT_CHOSEN(zephyr_flash_controller)),
+};
+
+static struct image_header hdr_softdevice = { 0 };
+
+#ifdef FIRMWARE_LOADER_PARTITION_PRESENT
+static struct flash_area fa_firmware_loader = {
+    .fa_id = 3,
+    .fa_dev = DEVICE_DT_GET(DT_CHOSEN(zephyr_flash_controller)),
+};
+
+static struct image_header hdr_firmware_loader = { 0 };
+#endif
+
 /**
  * Validate hash of a primary boot image.
  *
@@ -38,9 +57,7 @@ static struct image_header _hdr = { 0 };
  *
  * @return		FIH_SUCCESS on success, error code otherwise
  */
-fih_ret
-boot_image_validate(const struct flash_area *fa_p,
-                    struct image_header *hdr)
+static fih_ret validate_image(const struct flash_area *fa, struct image_header *hdr)
 {
     static uint8_t tmpbuf[BOOT_TMPBUF_SZ];
     FIH_DECLARE(fih_rc, FIH_FAILURE);
@@ -60,131 +77,8 @@ boot_image_validate(const struct flash_area *fa_p,
          */
         hdr->ih_flags &= ~(ENCRYPTIONFLAGS);
     }
-    FIH_CALL(bootutil_img_validate, fih_rc, NULL, hdr, fa_p, tmpbuf,
-             BOOT_TMPBUF_SZ, NULL, 0, NULL);
 
-    FIH_RET(fih_rc);
-}
-#endif /* MCUBOOT_VALIDATE_PRIMARY_SLOT || MCUBOOT_VALIDATE_PRIMARY_SLOT_ONCE*/
-
-#if defined(MCUBOOT_VALIDATE_PRIMARY_SLOT_ONCE)
-inline static fih_ret
-boot_image_validate_once(const struct flash_area *fa_p,
-                    struct image_header *hdr)
-{
-    static struct boot_swap_state state;
-    int rc;
-    FIH_DECLARE(fih_rc, FIH_FAILURE);
-
-    memset(&state, 0, sizeof(struct boot_swap_state));
-    rc = boot_read_swap_state(fa_p, &state);
-    if (rc != 0)
-        FIH_RET(FIH_FAILURE);
-    if (state.magic != BOOT_MAGIC_GOOD
-            || state.image_ok != BOOT_FLAG_SET) {
-        /* At least validate the image once */
-        FIH_CALL(boot_image_validate, fih_rc, fa_p, hdr);
-        if (FIH_NOT_EQ(fih_rc, FIH_SUCCESS)) {
-            FIH_RET(FIH_FAILURE);
-        }
-        if (state.magic != BOOT_MAGIC_GOOD) {
-            rc = boot_write_magic(fa_p);
-            if (rc != 0)
-                FIH_RET(FIH_FAILURE);
-        }
-        rc = boot_write_image_ok(fa_p);
-        if (rc != 0)
-            FIH_RET(FIH_FAILURE);
-    }
-    FIH_RET(FIH_SUCCESS);
-}
-#endif
-
-/**
- * Validates that an image in a slot is OK to boot.
- *
- * @param[in]	slot	Slot number to check
- * @param[out]	rsp	Parameters for booting image, on success
- *
- * @return		FIH_SUCCESS on success; non-zero on failure.
- */
-static fih_ret validate_image_slot(int slot, struct boot_rsp *rsp)
-{
-    int rc = -1;
-    FIH_DECLARE(fih_rc, FIH_FAILURE);
-
-    rc = get_alternative_slot(slot, &_fa_p);
-    assert(rc == 0);
-
-LOG_ERR("is at %d, %p, %ld, %d", _fa_p->fa_id, _fa_p->fa_dev, _fa_p->fa_off, _fa_p->fa_size);
-    if (rc) {
-        FIH_RET(fih_rc);
-    }
-
-    rc = boot_image_load_header(_fa_p, &_hdr);
-    if (rc != 0) {
-        goto other;
-    }
-
-#ifdef MCUBOOT_VALIDATE_PRIMARY_SLOT
-    FIH_CALL(boot_image_validate, fih_rc, _fa_p, &_hdr);
-    if (FIH_NOT_EQ(fih_rc, FIH_SUCCESS)) {
-        goto other;
-    }
-#elif defined(MCUBOOT_VALIDATE_PRIMARY_SLOT_ONCE)
-    FIH_CALL(boot_image_validate_once, fih_rc, _fa_p, &_hdr);
-    if (FIH_NOT_EQ(fih_rc, FIH_SUCCESS)) {
-        goto other;
-    }
-#else
-    fih_rc = FIH_SUCCESS;
-#endif /* MCUBOOT_VALIDATE_PRIMARY_SLOT */
-
-    rsp->br_flash_dev_id = flash_area_get_device_id(_fa_p);
-    rsp->br_image_off = flash_area_get_off(_fa_p);
-    rsp->br_hdr = &_hdr;
-
-other:
-    flash_area_close(_fa_p);
-
-    FIH_RET(fih_rc);
-}
-
-
-static fih_ret validate_image(const struct flash_area *fa)
-{
-    int rc = -1;
-    FIH_DECLARE(fih_rc, FIH_FAILURE);
-    struct image_header hdr = { 0 };
-
-    rc = boot_image_load_header(fa, &hdr);
-
-    if (rc != 0) {
-        goto other;
-    }
-
-    FIH_CALL(boot_image_validate, fih_rc, fa, &hdr);
-
-    if (FIH_NOT_EQ(fih_rc, FIH_SUCCESS)) {
-        goto other;
-    }
-
-//#ifdef MCUBOOT_VALIDATE_PRIMARY_SLOT
-//#elif defined(MCUBOOT_VALIDATE_PRIMARY_SLOT_ONCE)
-//    FIH_CALL(boot_image_validate_once, fih_rc, _fa_p, &_hdr);
-//    if (FIH_NOT_EQ(fih_rc, FIH_SUCCESS)) {
-//        goto other;
-//    }
-//#else
-//    fih_rc = FIH_SUCCESS;
-//#endif /* MCUBOOT_VALIDATE_PRIMARY_SLOT */
-
-//    rsp->br_flash_dev_id = flash_area_get_device_id(_fa_p);
-//    rsp->br_image_off = flash_area_get_off(_fa_p);
-//    rsp->br_hdr = &_hdr;
-
-other:
-//    flash_area_close(_fa_p);
+    FIH_CALL(bootutil_img_validate, fih_rc, NULL, hdr, fa, tmpbuf, BOOT_TMPBUF_SZ, NULL, 0, NULL);
 
     FIH_RET(fih_rc);
 }
@@ -210,27 +104,9 @@ boot_go(struct boot_rsp *rsp)
     bool app_installer_image_valid = false;
     bool softdevice_image_valid = false;
     bool firmware_loader_image_valid = false;
+    bool app_installer_is_installer_image = false;
 
 //add logic here
-    struct flash_area fa_app_installer = {
-        .fa_id = 1,
-        .fa_off = APP_PARTITION_START,
-.fa_size = APP_PARTITION_SIZE, //need to deal with this being dynamic in future
-//        .fa_dev = DEVICE_DT_GET(DT_MTD_FROM_FIXED_PARTITION(slot0_partition)),
-        .fa_dev = DEVICE_DT_GET(DT_CHOSEN(zephyr_flash_controller)),
-    };
-
-    struct flash_area fa_softdevice = {
-        .fa_id = 2,
-        .fa_dev = DEVICE_DT_GET(DT_CHOSEN(zephyr_flash_controller)),
-    };
-
-#ifdef FIRMWARE_LOADER_PARTITION_PRESENT
-    struct flash_area fa_firmware_loader = {
-        .fa_id = 3,
-        .fa_dev = DEVICE_DT_GET(DT_CHOSEN(zephyr_flash_controller)),
-    };
-#endif
 
     liteinstalls_init();
 
@@ -241,9 +117,14 @@ boot_go(struct boot_rsp *rsp)
         rc = liteinstalls_get_image_data(LISTINSTALLS_IMAGE_INDEX_SOFTDEVICE, &start_address, &image_size);
 
         if (!rc) {
-            softdevice_area_valid = true;
             fa_softdevice.fa_off = start_address;
             fa_softdevice.fa_size = image_size;
+
+            rc = boot_image_load_header(&fa_softdevice, &hdr_softdevice);
+
+            if (!rc) {
+                softdevice_area_valid = true;
+            }
         }
 
 #ifdef FIRMWARE_LOADER_PARTITION_PRESENT
@@ -252,22 +133,61 @@ boot_go(struct boot_rsp *rsp)
         rc = liteinstalls_get_image_data(LISTINSTALLS_IMAGE_INDEX_FIRMWARE_LOADER, &start_address, &image_size);
 
         if (!rc) {
-            firmware_loader_area_valid = true;
             fa_firmware_loader.fa_off = start_address;
             fa_firmware_loader.fa_size = image_size;
+
+            rc = boot_image_load_header(&fa_firmware_loader, &hdr_softdevice);
+
+            if (!rc) {
+                firmware_loader_area_valid = true;
+            }
         }
 #endif
     }
 
-    FIH_CALL(validate_image, fih_rc, &fa_app_installer);
+    rc = boot_image_load_header(&fa_app_installer, &hdr_app_installer);
+
+    if (rc) {
+        //todo: error
+    }
+
+    FIH_CALL(validate_image, fih_rc, &fa_app_installer, &hdr_app_installer);
 
     if (FIH_EQ(fih_rc, FIH_SUCCESS)) {
+        struct image_tlv_iter it;
+        uint32_t off2;
+        uint16_t len2;
+
         app_installer_image_valid = true;
+
+        /**/
+        if (hdr_app_installer.ih_protect_tlv_size > 0) {
+            rc = bootutil_tlv_iter_begin(&it, &hdr_app_installer, &fa_app_installer, IMAGE_TLV_SEC_CNT, true);
+
+            if (rc == 0) {
+                /**/
+                rc = bootutil_tlv_iter_next(&it, &off2, &len2, NULL);
+
+                if (rc == 0 && len2 == sizeof(app_installer_is_installer_image)) {
+                    rc = LOAD_IMAGE_DATA(&hdr_app_installer, &fa_app_installer, off2, &app_installer_is_installer_image, len2);
+
+                    if (rc != 0) {
+                        app_installer_is_installer_image = false;
+                    }
+                }
+            }
+        }
     }
 
     if (softdevice_area_valid) {
         fih_rc = FIH_FAILURE;
-        FIH_CALL(validate_image, fih_rc, &fa_softdevice);
+        rc = boot_image_load_header(&fa_softdevice, &hdr_softdevice);
+
+        if (rc) {
+//todo
+        }
+
+        FIH_CALL(validate_image, fih_rc, &fa_softdevice, &hdr_softdevice);
 
         if (FIH_EQ(fih_rc, FIH_SUCCESS)) {
             softdevice_image_valid = true;
@@ -277,7 +197,13 @@ boot_go(struct boot_rsp *rsp)
 #ifdef FIRMWARE_LOADER_PARTITION_PRESENT
     if (firmware_loader_area_valid) {
         fih_rc = FIH_FAILURE;
-        FIH_CALL(validate_image, fih_rc, &fa_firmware_loader);
+        rc = boot_image_load_header(&fa_firmware_loader, &hdr_firmware_loader);
+
+        if (rc) {
+//todo
+        }
+
+        FIH_CALL(validate_image, fih_rc, &fa_firmware_loader, &hdr_firmware_loader);
 
         if (FIH_EQ(fih_rc, FIH_SUCCESS)) {
             firmware_loader_image_valid = true;
@@ -285,7 +211,7 @@ boot_go(struct boot_rsp *rsp)
     }
 #endif
 
-LOG_ERR("app/installer off: %ld, size: %d", fa_app_installer.fa_off, fa_app_installer.fa_size);
+LOG_ERR("app/installer off: %ld, size: %d, type: %d", fa_app_installer.fa_off, fa_app_installer.fa_size, app_installer_is_installer_image);
 LOG_ERR("softdevice off: %ld, size: %d", fa_softdevice.fa_off, fa_softdevice.fa_size);
 #ifdef FIRMWARE_LOADER_PARTITION_PRESENT
 LOG_ERR("firmware loader off: %ld, size: %d", fa_firmware_loader.fa_off, fa_firmware_loader.fa_size);
@@ -304,38 +230,55 @@ LOG_ERR("softdevice_area_valid: %d, app_installer_image_valid: %d, softdevice_im
 #ifdef CONFIG_BOOT_FIRMWARE_LOADER_ENTRANCE_GPIO
     if (io_detect_pin() &&
             !io_boot_skip_serial_recovery()) {
+LOG_ERR("a1");
         boot_firmware_loader = true;
     }
 #endif
 
 #ifdef CONFIG_BOOT_FIRMWARE_LOADER_PIN_RESET
     if (io_detect_pin_reset()) {
+LOG_ERR("a2");
         boot_firmware_loader = true;
     }
 #endif
 
 #ifdef CONFIG_BOOT_FIRMWARE_LOADER_BOOT_MODE
     if (io_detect_boot_mode()) {
+LOG_ERR("a3");
         boot_firmware_loader = true;
     }
 #endif
 
-    /* Check if firmware loader button is pressed. TODO: check all entrance methods */
-    if (boot_firmware_loader == true) {
-        FIH_CALL(validate_image_slot, fih_rc, FLASH_AREA_IMAGE_SECONDARY(0), rsp);
-
-        if (FIH_EQ(fih_rc, FIH_SUCCESS)) {
-            FIH_RET(fih_rc);
-        }
+    if (app_installer_image_valid == true && app_installer_is_installer_image == true) {
+//Installer image is present, this gets priority
+LOG_ERR("q1");
+        rsp->br_image_off = flash_area_get_off(&fa_app_installer);
+        rsp->br_hdr = &hdr_app_installer;
+    } else if (boot_firmware_loader == true && /*softdevice_image_valid == true &&*/ firmware_loader_image_valid == true) {
+//Boot firmware loader
+LOG_ERR("q2");
+        rsp->br_image_off = flash_area_get_off(&fa_firmware_loader);
+        rsp->br_hdr = &hdr_firmware_loader;
+    } else if (app_installer_image_valid == true /*&& softdevice_image_valid == true*/) {
+//Boot main application
+LOG_ERR("q3");
+        rsp->br_image_off = flash_area_get_off(&fa_app_installer);
+        rsp->br_hdr = &hdr_app_installer;
+    } else if (app_installer_image_valid == false && /*softdevice_image_valid == true &&*/ firmware_loader_image_valid == true) {
+//Boot firmware loader due to missing main image
+LOG_ERR("q4");
+        rsp->br_image_off = flash_area_get_off(&fa_firmware_loader);
+        rsp->br_hdr = &hdr_firmware_loader;
+    } else {
+//Cannot boot in this configuration
+LOG_ERR("q99");
+        return -1;
     }
 
-    FIH_CALL(validate_image_slot, fih_rc, FLASH_AREA_IMAGE_PRIMARY(0), rsp);
+//return 0;
+    rsp->br_flash_dev_id = flash_area_get_device_id(&fa_app_installer);
 
-#ifdef CONFIG_BOOT_FIRMWARE_LOADER_NO_APPLICATION
-    if (FIH_NOT_EQ(fih_rc, FIH_SUCCESS)) {
-        FIH_CALL(validate_image_slot, fih_rc, FLASH_AREA_IMAGE_SECONDARY(0), rsp);
-    }
-#endif
+return 0;
 
     FIH_RET(fih_rc);
 }

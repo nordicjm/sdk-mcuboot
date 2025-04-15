@@ -9,11 +9,14 @@
 #include <zephyr/kernel.h>
 #include <zephyr/devicetree.h>
 #include <zephyr/drivers/gpio.h>
+#include <zephyr/storage/flash_map.h>
 #include "bootutil/image.h"
 #include "bootutil_priv.h"
 #include "bootutil/bootutil_log.h"
 #include "bootutil/bootutil_public.h"
 #include "bootutil/fault_injection_hardening.h"
+#include "lite/partitions.h"
+#include <liteinstalls.h>
 
 #include "io/io.h"
 #include "mcuboot_config/mcuboot_config.h"
@@ -147,6 +150,45 @@ other:
     FIH_RET(fih_rc);
 }
 
+
+static fih_ret validate_image(const struct flash_area *fa)
+{
+    int rc = -1;
+    FIH_DECLARE(fih_rc, FIH_FAILURE);
+    struct image_header hdr = { 0 };
+
+    rc = boot_image_load_header(fa, &hdr);
+
+    if (rc != 0) {
+        goto other;
+    }
+
+    FIH_CALL(boot_image_validate, fih_rc, fa, &hdr);
+
+    if (FIH_NOT_EQ(fih_rc, FIH_SUCCESS)) {
+        goto other;
+    }
+
+//#ifdef MCUBOOT_VALIDATE_PRIMARY_SLOT
+//#elif defined(MCUBOOT_VALIDATE_PRIMARY_SLOT_ONCE)
+//    FIH_CALL(boot_image_validate_once, fih_rc, _fa_p, &_hdr);
+//    if (FIH_NOT_EQ(fih_rc, FIH_SUCCESS)) {
+//        goto other;
+//    }
+//#else
+//    fih_rc = FIH_SUCCESS;
+//#endif /* MCUBOOT_VALIDATE_PRIMARY_SLOT */
+
+//    rsp->br_flash_dev_id = flash_area_get_device_id(_fa_p);
+//    rsp->br_image_off = flash_area_get_off(_fa_p);
+//    rsp->br_hdr = &_hdr;
+
+other:
+//    flash_area_close(_fa_p);
+
+    FIH_RET(fih_rc);
+}
+
 /**
  * Gather information on image and prepare for booting. Will boot from main
  * image if none of the enabled entrance modes for the firmware loader are set,
@@ -162,8 +204,95 @@ boot_go(struct boot_rsp *rsp)
 {
     bool boot_firmware_loader = false;
     FIH_DECLARE(fih_rc, FIH_FAILURE);
+    bool softdevice_area_valid = false;
+    bool firmware_loader_area_valid = false;
+    int rc;
+    bool app_installer_image_valid = false;
+    bool softdevice_image_valid = false;
+    bool firmware_loader_image_valid = false;
 
 //add logic here
+    struct flash_area fa_app_installer = {
+        .fa_id = 1,
+        .fa_off = APP_PARTITION_START,
+.fa_size = APP_PARTITION_SIZE, //need to deal with this being dynamic in future
+//        .fa_dev = DEVICE_DT_GET(DT_MTD_FROM_FIXED_PARTITION(slot0_partition)),
+        .fa_dev = DEVICE_DT_GET(DT_CHOSEN(zephyr_flash_controller)),
+    };
+
+    struct flash_area fa_softdevice = {
+        .fa_id = 2,
+        .fa_dev = DEVICE_DT_GET(DT_CHOSEN(zephyr_flash_controller)),
+    };
+
+    struct flash_area fa_firmware_loader = {
+        .fa_id = 3,
+        .fa_dev = DEVICE_DT_GET(DT_CHOSEN(zephyr_flash_controller)),
+    };
+
+    liteinstalls_init();
+
+    if (liteinstalls_isvalid()) {
+        off_t start_address = 0;
+        size_t image_size = 0;
+
+        rc = liteinstalls_get_image_data(LISTINSTALLS_IMAGE_INDEX_SOFTDEVICE, &start_address, &image_size);
+
+        if (!rc) {
+            softdevice_area_valid = true;
+            fa_softdevice.fa_off = start_address;
+            fa_softdevice.fa_size = image_size;
+        }
+
+        start_address = 0;
+        image_size = 0;
+        rc = liteinstalls_get_image_data(LISTINSTALLS_IMAGE_INDEX_FIRMWARE_LOADER, &start_address, &image_size);
+
+        if (!rc) {
+            firmware_loader_area_valid = true;
+            fa_firmware_loader.fa_off = start_address;
+            fa_firmware_loader.fa_size = image_size;
+        }
+    }
+
+    FIH_CALL(validate_image, fih_rc, &fa_app_installer);
+
+    if (FIH_EQ(fih_rc, FIH_SUCCESS)) {
+        app_installer_image_valid = true;
+    }
+
+    if (softdevice_area_valid) {
+        fih_rc = FIH_FAILURE;
+        FIH_CALL(validate_image, fih_rc, &fa_softdevice);
+
+        if (FIH_EQ(fih_rc, FIH_SUCCESS)) {
+            softdevice_image_valid = true;
+        }
+    }
+
+    if (firmware_loader_area_valid) {
+        fih_rc = FIH_FAILURE;
+        FIH_CALL(validate_image, fih_rc, &fa_firmware_loader);
+
+        if (FIH_EQ(fih_rc, FIH_SUCCESS)) {
+            firmware_loader_image_valid = true;
+        }
+    }
+
+
+LOG_ERR("app/installer off: %ld, size: %d", fa_app_installer.fa_off, fa_app_installer.fa_size);
+LOG_ERR("softdevice off: %ld, size: %d", fa_softdevice.fa_off, fa_softdevice.fa_size);
+LOG_ERR("firmware loader off: %ld, size: %d", fa_firmware_loader.fa_off, fa_firmware_loader.fa_size);
+LOG_ERR("softdevice_area_valid: %d, firmware_loader_area_valid: %d, app_installer_image_valid: %d, softdevice_image_valid: %d, firmware_loader_image_valid: %d", softdevice_area_valid, firmware_loader_area_valid, app_installer_image_valid, softdevice_image_valid, firmware_loader_image_valid);
+
+
+
+//    if (FIH_EQ(fih_rc, FIH_SUCCESS)) {
+//        FIH_RET(fih_rc);
+//    }
+
+//         .fa_off = ,
+//         .fa_size = DT_REG_SIZE(part), },
 
 #ifdef CONFIG_BOOT_FIRMWARE_LOADER_ENTRANCE_GPIO
     if (io_detect_pin() &&

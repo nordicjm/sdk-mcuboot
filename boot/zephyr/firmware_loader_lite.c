@@ -16,6 +16,7 @@
 #include "bootutil/fault_injection_hardening.h"
 #include "lite/partitions.h"
 #include <liteinstalls.h>
+#include <fprotect.h>
 
 #include "io/io.h"
 #include "mcuboot_config/mcuboot_config.h"
@@ -90,8 +91,8 @@ boot_go(struct boot_rsp *rsp)
     bool firmware_loader_image_valid = false;
     bool app_installer_is_installer_image = false;
     bool protect_app_installer_area = true;
-    bool protect_softdevice = true;
-    bool protect_firmware_loader_area = true;
+    bool protect_softdevice = false;
+    bool protect_firmware_loader_area = false;
     bool protect_metadata_area = true;
 
 //add logic here
@@ -179,6 +180,7 @@ boot_go(struct boot_rsp *rsp)
 
         if (FIH_EQ(fih_rc, FIH_SUCCESS)) {
             softdevice_image_valid = true;
+            protect_softdevice = true;
         }
     }
 
@@ -195,6 +197,7 @@ boot_go(struct boot_rsp *rsp)
 
         if (FIH_EQ(fih_rc, FIH_SUCCESS)) {
             firmware_loader_image_valid = true;
+            protect_firmware_loader_area = true;
         }
     }
 #endif
@@ -273,18 +276,26 @@ LOG_ERR("q99");
 
     if (protect_app_installer_area) {
 //todo
+        rc = fprotect_area(flash_area_get_off(&fa_app_installer), flash_area_get_size(&fa_app_installer));
+LOG_ERR("rcm1 = %d", rc);
     }
 
     if (protect_softdevice) {
 //todo
+        rc = fprotect_area(flash_area_get_off(&fa_softdevice), flash_area_get_size(&fa_softdevice));
+LOG_ERR("rcm2 = %d", rc);
     }
 
     if (protect_firmware_loader_area) {
 //todo
+        rc = fprotect_area(flash_area_get_off(&fa_firmware_loader), flash_area_get_size(&fa_firmware_loader));
+LOG_ERR("rcm3 = %d", rc);
     }
 
     if (protect_metadata_area) {
 //todo
+        rc = fprotect_area(METADATA_PARTITION_START, METADATA_PARTITION_SIZE);
+LOG_ERR("rcm4 = %d", rc);
     }
 
 return 0;

@@ -1,8 +1,7 @@
 /*
  * SPDX-License-Identifier: Apache-2.0
  *
- * Copyright (c) 2020 Arm Limited
- * Copyright (c) 2020-2025 Nordic Semiconductor ASA
+ * Copyright (c) 2025 Nordic Semiconductor ASA
  */
 
 #include <assert.h>
@@ -57,29 +56,12 @@ static struct image_header hdr_firmware_loader = { 0 };
  *
  * @return		FIH_SUCCESS on success, error code otherwise
  */
-static fih_ret validate_image(const struct flash_area *fa, struct image_header *hdr)
+static fih_ret validate_image(const struct flash_area *fap, struct image_header *hdr)
 {
     static uint8_t tmpbuf[BOOT_TMPBUF_SZ];
     FIH_DECLARE(fih_rc, FIH_FAILURE);
 
-    /* NOTE: The first argument to boot_image_validate, for enc_state pointer,
-     * is allowed to be NULL only because the single image loader compiles
-     * with BOOT_IMAGE_NUMBER == 1, which excludes the code that uses
-     * the pointer from compilation.
-     */
-    /* Validate hash */
-    if (IS_ENCRYPTED(hdr))
-    {
-        /* Clear the encrypted flag we didn't supply a key
-         * This flag could be set if there was a decryption in place
-         * was performed. We will try to validate the image, and if still
-         * encrypted the validation will fail, and go in panic mode
-         */
-        hdr->ih_flags &= ~(ENCRYPTIONFLAGS);
-    }
-
-    FIH_CALL(bootutil_img_validate, fih_rc, NULL, hdr, fa, tmpbuf, BOOT_TMPBUF_SZ, NULL, 0, NULL);
-
+    FIH_CALL(bootutil_img_validate, fih_rc, NULL, hdr, fap, tmpbuf, BOOT_TMPBUF_SZ, NULL, 0, NULL);
     FIH_RET(fih_rc);
 }
 

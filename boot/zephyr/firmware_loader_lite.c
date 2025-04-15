@@ -225,10 +225,12 @@ boot_go(struct boot_rsp *rsp)
         .fa_dev = DEVICE_DT_GET(DT_CHOSEN(zephyr_flash_controller)),
     };
 
+#ifdef FIRMWARE_LOADER_PARTITION_PRESENT
     struct flash_area fa_firmware_loader = {
         .fa_id = 3,
         .fa_dev = DEVICE_DT_GET(DT_CHOSEN(zephyr_flash_controller)),
     };
+#endif
 
     liteinstalls_init();
 
@@ -244,6 +246,7 @@ boot_go(struct boot_rsp *rsp)
             fa_softdevice.fa_size = image_size;
         }
 
+#ifdef FIRMWARE_LOADER_PARTITION_PRESENT
         start_address = 0;
         image_size = 0;
         rc = liteinstalls_get_image_data(LISTINSTALLS_IMAGE_INDEX_FIRMWARE_LOADER, &start_address, &image_size);
@@ -253,6 +256,7 @@ boot_go(struct boot_rsp *rsp)
             fa_firmware_loader.fa_off = start_address;
             fa_firmware_loader.fa_size = image_size;
         }
+#endif
     }
 
     FIH_CALL(validate_image, fih_rc, &fa_app_installer);
@@ -270,6 +274,7 @@ boot_go(struct boot_rsp *rsp)
         }
     }
 
+#ifdef FIRMWARE_LOADER_PARTITION_PRESENT
     if (firmware_loader_area_valid) {
         fih_rc = FIH_FAILURE;
         FIH_CALL(validate_image, fih_rc, &fa_firmware_loader);
@@ -278,14 +283,16 @@ boot_go(struct boot_rsp *rsp)
             firmware_loader_image_valid = true;
         }
     }
-
+#endif
 
 LOG_ERR("app/installer off: %ld, size: %d", fa_app_installer.fa_off, fa_app_installer.fa_size);
 LOG_ERR("softdevice off: %ld, size: %d", fa_softdevice.fa_off, fa_softdevice.fa_size);
+#ifdef FIRMWARE_LOADER_PARTITION_PRESENT
 LOG_ERR("firmware loader off: %ld, size: %d", fa_firmware_loader.fa_off, fa_firmware_loader.fa_size);
 LOG_ERR("softdevice_area_valid: %d, firmware_loader_area_valid: %d, app_installer_image_valid: %d, softdevice_image_valid: %d, firmware_loader_image_valid: %d", softdevice_area_valid, firmware_loader_area_valid, app_installer_image_valid, softdevice_image_valid, firmware_loader_image_valid);
-
-
+#else
+LOG_ERR("softdevice_area_valid: %d, app_installer_image_valid: %d, softdevice_image_valid: %d", softdevice_area_valid, app_installer_image_valid, softdevice_image_valid);
+#endif
 
 //    if (FIH_EQ(fih_rc, FIH_SUCCESS)) {
 //        FIH_RET(fih_rc);

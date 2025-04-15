@@ -20,6 +20,8 @@
 #include "io/io.h"
 #include "mcuboot_config/mcuboot_config.h"
 
+#define IMAGE_TLV_INSTALLER_IMAGE 0xa9
+
 BOOT_LOG_MODULE_DECLARE(mcuboot);
 
 static struct flash_area fa_app_installer = {
@@ -87,6 +89,10 @@ boot_go(struct boot_rsp *rsp)
     bool softdevice_image_valid = false;
     bool firmware_loader_image_valid = false;
     bool app_installer_is_installer_image = false;
+    bool protect_app_installer_area = true;
+    bool protect_softdevice = true;
+    bool protect_firmware_loader_area = true;
+    bool protect_metadata_area = true;
 
 //add logic here
 
@@ -144,7 +150,7 @@ boot_go(struct boot_rsp *rsp)
 
         /**/
         if (hdr_app_installer.ih_protect_tlv_size > 0) {
-            rc = bootutil_tlv_iter_begin(&it, &hdr_app_installer, &fa_app_installer, IMAGE_TLV_SEC_CNT, true);
+            rc = bootutil_tlv_iter_begin(&it, &hdr_app_installer, &fa_app_installer, IMAGE_TLV_INSTALLER_IMAGE, true);
 
             if (rc == 0) {
                 /**/
@@ -236,11 +242,16 @@ LOG_ERR("a3");
 LOG_ERR("q1");
         rsp->br_image_off = flash_area_get_off(&fa_app_installer);
         rsp->br_hdr = &hdr_app_installer;
+        protect_app_installer_area = false;
+        protect_softdevice = false;
+        protect_firmware_loader_area = false;
+        protect_metadata_area = false;
     } else if (boot_firmware_loader == true && /*softdevice_image_valid == true &&*/ firmware_loader_image_valid == true) {
 //Boot firmware loader
 LOG_ERR("q2");
         rsp->br_image_off = flash_area_get_off(&fa_firmware_loader);
         rsp->br_hdr = &hdr_firmware_loader;
+        protect_app_installer_area = false;
     } else if (app_installer_image_valid == true /*&& softdevice_image_valid == true*/) {
 //Boot main application
 LOG_ERR("q3");
@@ -251,14 +262,30 @@ LOG_ERR("q3");
 LOG_ERR("q4");
         rsp->br_image_off = flash_area_get_off(&fa_firmware_loader);
         rsp->br_hdr = &hdr_firmware_loader;
+        protect_app_installer_area = false;
     } else {
 //Cannot boot in this configuration
 LOG_ERR("q99");
         return -1;
     }
 
-//return 0;
     rsp->br_flash_dev_id = flash_area_get_device_id(&fa_app_installer);
+
+    if (protect_app_installer_area) {
+//todo
+    }
+
+    if (protect_softdevice) {
+//todo
+    }
+
+    if (protect_firmware_loader_area) {
+//todo
+    }
+
+    if (protect_metadata_area) {
+//todo
+    }
 
 return 0;
 

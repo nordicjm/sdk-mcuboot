@@ -21,7 +21,7 @@
 #include "io/io.h"
 #include "mcuboot_config/mcuboot_config.h"
 
-#define IMAGE_TLV_INSTALLER_IMAGE 0xa9
+#define IMAGE_TLV_INSTALLER_IMAGE 0xa0
 
 BOOT_LOG_MODULE_DECLARE(mcuboot);
 

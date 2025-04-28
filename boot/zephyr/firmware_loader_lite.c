@@ -16,7 +16,10 @@
 #include "bootutil/fault_injection_hardening.h"
 #include "lite/partitions.h"
 #include <liteinstalls.h>
-#include <fprotect.h>
+
+#if defined(CONFIG_LITE_SECURE)
+#include <litesecure.h>
+#endif
 
 #include "io/io.h"
 #include "mcuboot_config/mcuboot_config.h"
@@ -90,10 +93,11 @@ boot_go(struct boot_rsp *rsp)
     bool softdevice_image_valid = false;
     bool firmware_loader_image_valid = false;
     bool app_installer_is_installer_image = false;
-    bool protect_app_installer_area = true;
-    bool protect_softdevice = false;
-    bool protect_firmware_loader_area = false;
-    bool protect_metadata_area = true;
+
+#if defined(CONFIG_LITE_SECURE)
+    uint32_t protect_start_address = 0;
+    uint32_t protect_end_address = 0;
+#endif
 
 //add logic here
 
@@ -109,6 +113,13 @@ boot_go(struct boot_rsp *rsp)
             fa_softdevice.fa_off = start_address;
             fa_softdevice.fa_size = image_size;
 
+            if (start_address < fa_app_installer.fa_off) {
+//invalid
+                goto invalid_softdevice;
+            }
+
+            fa_app_installer.fa_size = start_address - fa_app_installer.fa_off;
+
             rc = boot_image_load_header(&fa_softdevice, &hdr_softdevice);
 
             if (!rc) {
@@ -116,6 +127,7 @@ boot_go(struct boot_rsp *rsp)
             }
         }
 
+invalid_softdevice:
 #ifdef FIRMWARE_LOADER_PARTITION_PRESENT
         start_address = 0;
         image_size = 0;
@@ -124,6 +136,13 @@ boot_go(struct boot_rsp *rsp)
         if (!rc) {
             fa_firmware_loader.fa_off = start_address;
             fa_firmware_loader.fa_size = image_size;
+
+            if (start_address < fa_app_installer.fa_off) {
+//invalid
+                goto invalid_firmware_loader;
+            }
+
+            fa_app_installer.fa_size = start_address - fa_app_installer.fa_off;
 
             rc = boot_image_load_header(&fa_firmware_loader, &hdr_softdevice);
 
@@ -134,6 +153,7 @@ boot_go(struct boot_rsp *rsp)
 #endif
     }
 
+invalid_firmware_loader:
     rc = boot_image_load_header(&fa_app_installer, &hdr_app_installer);
 
     if (rc) {
@@ -180,7 +200,6 @@ boot_go(struct boot_rsp *rsp)
 
         if (FIH_EQ(fih_rc, FIH_SUCCESS)) {
             softdevice_image_valid = true;
-            protect_softdevice = true;
         }
     }
 
@@ -197,16 +216,15 @@ boot_go(struct boot_rsp *rsp)
 
         if (FIH_EQ(fih_rc, FIH_SUCCESS)) {
             firmware_loader_image_valid = true;
-            protect_firmware_loader_area = true;
         }
     }
 #endif
 
-LOG_ERR("app/installer off: 0x%lx, size: 0x%x, type: %d", fa_app_installer.fa_off, fa_app_installer.fa_size, app_installer_is_installer_image);
-LOG_ERR("softdevice off: 0x%lx, size: 0x%x", fa_softdevice.fa_off, fa_softdevice.fa_size);
+//LOG_ERR("app/installer off: 0x%lx, size: 0x%x, type: %d", fa_app_installer.fa_off, fa_app_installer.fa_size, app_installer_is_installer_image);
+//LOG_ERR("softdevice off: 0x%lx, size: 0x%x", fa_softdevice.fa_off, fa_softdevice.fa_size);
 #ifdef FIRMWARE_LOADER_PARTITION_PRESENT
-LOG_ERR("firmware loader off: 0x%lx, size: 0x%x", fa_firmware_loader.fa_off, fa_firmware_loader.fa_size);
-LOG_ERR("softdevice_area_valid: %d, firmware_loader_area_valid: %d, app_installer_image_valid: %d, softdevice_image_valid: %d, firmware_loader_image_valid: %d", softdevice_area_valid, firmware_loader_area_valid, app_installer_image_valid, softdevice_image_valid, firmware_loader_image_valid);
+//LOG_ERR("firmware loader off: 0x%lx, size: 0x%x", fa_firmware_loader.fa_off, fa_firmware_loader.fa_size);
+//LOG_ERR("softdevice_area_valid: %d, firmware_loader_area_valid: %d, app_installer_image_valid: %d, softdevice_image_valid: %d, firmware_loader_image_valid: %d", softdevice_area_valid, firmware_loader_area_valid, app_installer_image_valid, softdevice_image_valid, firmware_loader_image_valid);
 #else
 LOG_ERR("softdevice_area_valid: %d, app_installer_image_valid: %d, softdevice_image_valid: %d", softdevice_area_valid, app_installer_image_valid, softdevice_image_valid);
 #endif
@@ -245,27 +263,38 @@ LOG_ERR("a3");
 LOG_ERR("q1");
         rsp->br_image_off = flash_area_get_off(&fa_app_installer);
         rsp->br_hdr = &hdr_app_installer;
-        protect_app_installer_area = false;
-        protect_softdevice = false;
-        protect_firmware_loader_area = false;
-        protect_metadata_area = false;
+//file system only if enabled
+#if defined(CONFIG_LITE_SECURE) && defined(FILE_SYSTEM_PARTITION_PRESENT)
+        protect_start_address = FILE_SYSTEM_PARTITION_START;
+        protect_end_address = FILE_SYSTEM_PARTITION_END;
+#endif
     } else if (boot_firmware_loader == true && /*softdevice_image_valid == true &&*/ firmware_loader_image_valid == true) {
 //Boot firmware loader
 LOG_ERR("q2");
         rsp->br_image_off = flash_area_get_off(&fa_firmware_loader);
         rsp->br_hdr = &hdr_firmware_loader;
-        protect_app_installer_area = false;
+#if defined(CONFIG_LITE_SECURE)
+        protect_start_address = FIRMWARE_LOADER_PARTITION_START;
+        protect_end_address = METADATA_PARTITION_END;
+#endif
     } else if (app_installer_image_valid == true /*&& softdevice_image_valid == true*/) {
 //Boot main application
 LOG_ERR("q3");
         rsp->br_image_off = flash_area_get_off(&fa_app_installer);
         rsp->br_hdr = &hdr_app_installer;
+#if defined(CONFIG_LITE_SECURE)
+        protect_start_address = APP_PARTITION_START;
+        protect_end_address = METADATA_PARTITION_END;
+#endif
     } else if (app_installer_image_valid == false && /*softdevice_image_valid == true &&*/ firmware_loader_image_valid == true) {
 //Boot firmware loader due to missing main image
 LOG_ERR("q4");
         rsp->br_image_off = flash_area_get_off(&fa_firmware_loader);
         rsp->br_hdr = &hdr_firmware_loader;
-        protect_app_installer_area = false;
+#if defined(CONFIG_LITE_SECURE)
+        protect_start_address = FIRMWARE_LOADER_PARTITION_START;
+        protect_end_address = METADATA_PARTITION_END;
+#endif
     } else {
 //Cannot boot in this configuration
 LOG_ERR("q99");
@@ -274,29 +303,12 @@ LOG_ERR("q99");
 
     rsp->br_flash_dev_id = flash_area_get_device_id(&fa_app_installer);
 
-    if (protect_app_installer_area) {
-//todo
-        rc = fprotect_area(flash_area_get_off(&fa_app_installer), flash_area_get_size(&fa_app_installer));
-LOG_ERR("rcm1 = %d", rc);
+#if defined(CONFIG_LITE_SECURE)
+    if (protect_start_address != 0 || protect_end_address != 0) {
+        bool doneit = litesecure_enable(protect_start_address, protect_end_address);
+LOG_ERR("apply protection 0x%x - 0x%x = %d", protect_start_address, protect_end_address, doneit);
     }
-
-    if (protect_softdevice) {
-//todo
-        rc = fprotect_area(flash_area_get_off(&fa_softdevice), flash_area_get_size(&fa_softdevice));
-LOG_ERR("rcm2 = %d", rc);
-    }
-
-    if (protect_firmware_loader_area) {
-//todo
-        rc = fprotect_area(flash_area_get_off(&fa_firmware_loader), flash_area_get_size(&fa_firmware_loader));
-LOG_ERR("rcm3 = %d", rc);
-    }
-
-    if (protect_metadata_area) {
-//todo
-        rc = fprotect_area(METADATA_PARTITION_START, METADATA_PARTITION_SIZE);
-LOG_ERR("rcm4 = %d", rc);
-    }
+#endif
 
 return 0;
 

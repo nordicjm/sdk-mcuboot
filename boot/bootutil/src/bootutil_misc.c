@@ -135,6 +135,74 @@ boot_trailer_sz(uint32_t min_write_sz)
     return boot_status_sz(min_write_sz) + boot_trailer_info_sz();
 }
 
+int boot_trailer_scramble_offset(const struct flash_area *fa, size_t alignment,
+                                 size_t *off)
+{
+    int ret = 0;
+
+    /* Not allowed to enforce alignment smaller than device allows */
+    if (alignment < flash_area_align(fa)) {
+        alignment = flash_area_align(fa);
+    }
+
+    if (device_requires_erase(fa)) {
+        /* For device requiring erase align to erase unit */
+        struct flash_sector sector;
+
+        ret = flash_area_get_sector(fa, flash_area_get_size(fa) - boot_trailer_sz(alignment),
+                                    &sector);
+        if (ret < 0) {
+            return ret;
+        }
+
+        *off = flash_sector_get_off(&sector);
+    } else {
+        /* For device not requiring erase align to write block */
+        *off = flash_area_get_size(fa) - ALIGN_DOWN(boot_trailer_sz(alignment), alignment);
+    }
+
+    return ret;
+}
+
+int boot_header_scramble_off_sz(const struct flash_area *fa, int slot, size_t *off,
+                                size_t *size)
+{
+    int ret = 0;
+    const size_t write_block = flash_area_align(fa);
+    size_t loff = 0;
+    struct flash_sector sector;
+
+    (void)slot;
+#if defined(MCUBOOT_SWAP_USING_OFFSET)
+    /* In case of swap offset, header of secondary slot image is positioned
+     * in second sector of slot.
+     */
+    if (slot == BOOT_SECONDARY_SLOT) {
+        ret = flash_area_get_sector(fa, 0, &sector);
+        if (ret < 0) {
+            return ret;
+        }
+        loff = flash_sector_get_off(&sector);
+    }
+#endif
+
+    if (device_requires_erase(fa)) {
+        /* For device requiring erase align to erase unit */
+        ret = flash_area_get_sector(fa, loff, &sector);
+        if (ret < 0) {
+            return ret;
+        }
+
+        *size = flash_sector_get_size(&sector);
+    } else {
+        /* For device not requiring erase align to write block */
+        *size = ALIGN_UP(sizeof(((struct image_header *)0)->ih_magic), write_block);
+    }
+    *off = loff;
+
+    return ret;
+}
+
 #if MCUBOOT_SWAP_USING_SCRATCH
 /*
  * Similar to `boot_trailer_sz` but this function returns the space used to
@@ -173,7 +241,7 @@ boot_status_off(const struct flash_area *fap)
     elem_sz = flash_area_align(fap);
 
 #if MCUBOOT_SWAP_USING_SCRATCH
-    if (fap->fa_id == FLASH_AREA_IMAGE_SCRATCH) {
+    if (flash_area_get_id(fap) == FLASH_AREA_IMAGE_SCRATCH) {
         off_from_end = boot_scratch_trailer_sz(elem_sz);
     } else {
 #endif
@@ -447,19 +515,12 @@ boot_read_image_size(struct boot_loader_state *state, int slot, uint32_t *size)
     struct image_tlv_info info;
     uint32_t off;
     uint32_t protect_tlv_size;
-    int area_id;
     int rc;
 
-#if (BOOT_IMAGE_NUMBER == 1)
-    (void)state;
-#endif
+    assert(slot == BOOT_PRIMARY_SLOT || slot == BOOT_SECONDARY_SLOT);
 
-    area_id = flash_area_id_from_multi_image_slot(BOOT_CURR_IMG(state), slot);
-    rc = flash_area_open(area_id, &fap);
-    if (rc != 0) {
-        rc = BOOT_EFLASH;
-        goto done;
-    }
+    fap = BOOT_IMG_AREA(state, slot);
+    assert(fap != NULL);
 
     off = BOOT_TLV_OFF(boot_img_hdr(state, slot));
 
@@ -493,7 +554,6 @@ boot_read_image_size(struct boot_loader_state *state, int slot, uint32_t *size)
     rc = 0;
 
 done:
-    flash_area_close(fap);
     return rc;
 }
 #endif /* !MCUBOOT_OVERWRITE_ONLY */

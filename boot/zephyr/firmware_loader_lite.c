@@ -268,7 +268,7 @@ LOG_ERR("q1");
         protect_start_address = FILE_SYSTEM_PARTITION_START;
         protect_end_address = FILE_SYSTEM_PARTITION_END;
 #endif
-    } else if (boot_firmware_loader == true && /*softdevice_image_valid == true &&*/ firmware_loader_image_valid == true) {
+    } else if (boot_firmware_loader == true && softdevice_image_valid == true && firmware_loader_image_valid == true) {
 //Boot firmware loader
 LOG_ERR("q2");
         rsp->br_image_off = flash_area_get_off(&fa_firmware_loader);
@@ -277,7 +277,7 @@ LOG_ERR("q2");
         protect_start_address = FIRMWARE_LOADER_PARTITION_START;
         protect_end_address = METADATA_PARTITION_END;
 #endif
-    } else if (app_installer_image_valid == true /*&& softdevice_image_valid == true*/) {
+    } else if (app_installer_image_valid == true && softdevice_image_valid == true) {
 //Boot main application
 LOG_ERR("q3");
         rsp->br_image_off = flash_area_get_off(&fa_app_installer);
@@ -286,7 +286,7 @@ LOG_ERR("q3");
         protect_start_address = APP_PARTITION_START;
         protect_end_address = METADATA_PARTITION_END;
 #endif
-    } else if (app_installer_image_valid == false && /*softdevice_image_valid == true &&*/ firmware_loader_image_valid == true) {
+    } else if (app_installer_image_valid == false && softdevice_image_valid == true && firmware_loader_image_valid == true) {
 //Boot firmware loader due to missing main image
 LOG_ERR("q4");
         rsp->br_image_off = flash_area_get_off(&fa_firmware_loader);

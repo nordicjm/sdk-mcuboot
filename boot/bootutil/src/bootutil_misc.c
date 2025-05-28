@@ -152,7 +152,13 @@ boot_status_sz(uint32_t min_write_sz)
 uint32_t
 boot_trailer_sz(uint32_t min_write_sz)
 {
+#if defined(MCUBOOT_SINGLE_APPLICATION_SLOT) ||      \
+    defined(MCUBOOT_FIRMWARE_LOADER) ||              \
+    defined(MCUBOOT_SINGLE_APPLICATION_SLOT_RAM_LOAD)
+    return 0;
+#else
     return boot_status_sz(min_write_sz) + boot_trailer_info_sz();
+#endif
 }
 
 int boot_trailer_scramble_offset(const struct flash_area *fa, size_t alignment,

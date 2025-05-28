@@ -220,11 +220,11 @@ invalid_firmware_loader:
     }
 #endif
 
-//LOG_ERR("app/installer off: 0x%lx, size: 0x%x, type: %d", fa_app_installer.fa_off, fa_app_installer.fa_size, app_installer_is_installer_image);
-//LOG_ERR("softdevice off: 0x%lx, size: 0x%x", fa_softdevice.fa_off, fa_softdevice.fa_size);
+LOG_ERR("app/installer off: 0x%lx, size: 0x%x, type: %d", fa_app_installer.fa_off, fa_app_installer.fa_size, app_installer_is_installer_image);
+LOG_ERR("softdevice off: 0x%lx, size: 0x%x", fa_softdevice.fa_off, fa_softdevice.fa_size);
 #ifdef FIRMWARE_LOADER_PARTITION_PRESENT
-//LOG_ERR("firmware loader off: 0x%lx, size: 0x%x", fa_firmware_loader.fa_off, fa_firmware_loader.fa_size);
-//LOG_ERR("softdevice_area_valid: %d, firmware_loader_area_valid: %d, app_installer_image_valid: %d, softdevice_image_valid: %d, firmware_loader_image_valid: %d", softdevice_area_valid, firmware_loader_area_valid, app_installer_image_valid, softdevice_image_valid, firmware_loader_image_valid);
+LOG_ERR("firmware loader off: 0x%lx, size: 0x%x", fa_firmware_loader.fa_off, fa_firmware_loader.fa_size);
+LOG_ERR("softdevice_area_valid: %d, firmware_loader_area_valid: %d, app_installer_image_valid: %d, softdevice_image_valid: %d, firmware_loader_image_valid: %d", softdevice_area_valid, firmware_loader_area_valid, app_installer_image_valid, softdevice_image_valid, firmware_loader_image_valid);
 #else
 LOG_ERR("softdevice_area_valid: %d, app_installer_image_valid: %d, softdevice_image_valid: %d", softdevice_area_valid, app_installer_image_valid, softdevice_image_valid);
 #endif
@@ -235,6 +235,8 @@ LOG_ERR("softdevice_area_valid: %d, app_installer_image_valid: %d, softdevice_im
 
 //         .fa_off = ,
 //         .fa_size = DT_REG_SIZE(part), },
+
+//boot_firmware_loader = true;
 
 #ifdef CONFIG_BOOT_FIRMWARE_LOADER_ENTRANCE_GPIO
     if (io_detect_pin() &&

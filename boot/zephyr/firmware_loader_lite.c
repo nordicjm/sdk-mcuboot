@@ -14,7 +14,6 @@
 #include "bootutil/bootutil_log.h"
 #include "bootutil/bootutil_public.h"
 #include "bootutil/fault_injection_hardening.h"
-#include "lite/partitions.h"
 #include <liteinstalls.h>
 
 #if defined(CONFIG_LITE_SECURE)
@@ -30,8 +29,8 @@ BOOT_LOG_MODULE_DECLARE(mcuboot);
 
 static struct flash_area fa_app_installer = {
     .fa_id = 1,
-    .fa_off = APP_PARTITION_START,
-.fa_size = APP_PARTITION_SIZE, //need to deal with this being dynamic in future
+    .fa_off = FIXED_PARTITION_OFFSET(slot0_partition),
+.fa_size = FIXED_PARTITION_SIZE(slot0_partition), //need to deal with this being dynamic in future
 //        .fa_dev = DEVICE_DT_GET(DT_MTD_FROM_FIXED_PARTITION(slot0_partition)),
     .fa_dev = DEVICE_DT_GET(DT_CHOSEN(zephyr_flash_controller)),
 };
@@ -45,7 +44,7 @@ static struct flash_area fa_softdevice = {
 
 static struct image_header hdr_softdevice = { 0 };
 
-#ifdef FIRMWARE_LOADER_PARTITION_PRESENT
+#ifdef CONFIG_BOOT_FIRMWARE_LOADER
 static struct flash_area fa_firmware_loader = {
     .fa_id = 3,
     .fa_dev = DEVICE_DT_GET(DT_CHOSEN(zephyr_flash_controller)),
@@ -128,7 +127,7 @@ boot_go(struct boot_rsp *rsp)
         }
 
 invalid_softdevice:
-#ifdef FIRMWARE_LOADER_PARTITION_PRESENT
+#ifdef CONFIG_BOOT_FIRMWARE_LOADER
         start_address = 0;
         image_size = 0;
         rc = liteinstalls_get_image_data(LISTINSTALLS_IMAGE_INDEX_FIRMWARE_LOADER, &start_address, &image_size);
@@ -203,7 +202,7 @@ invalid_firmware_loader:
         }
     }
 
-#ifdef FIRMWARE_LOADER_PARTITION_PRESENT
+#ifdef CONFIG_BOOT_FIRMWARE_LOADER
     if (firmware_loader_area_valid) {
         fih_rc = FIH_FAILURE;
         rc = boot_image_load_header(&fa_firmware_loader, &hdr_firmware_loader);
@@ -222,7 +221,7 @@ invalid_firmware_loader:
 
 LOG_ERR("app/installer off: 0x%lx, size: 0x%x, type: %d", fa_app_installer.fa_off, fa_app_installer.fa_size, app_installer_is_installer_image);
 LOG_ERR("softdevice off: 0x%lx, size: 0x%x", fa_softdevice.fa_off, fa_softdevice.fa_size);
-#ifdef FIRMWARE_LOADER_PARTITION_PRESENT
+#ifdef CONFIG_BOOT_FIRMWARE_LOADER
 LOG_ERR("firmware loader off: 0x%lx, size: 0x%x", fa_firmware_loader.fa_off, fa_firmware_loader.fa_size);
 LOG_ERR("softdevice_area_valid: %d, firmware_loader_area_valid: %d, app_installer_image_valid: %d, softdevice_image_valid: %d, firmware_loader_image_valid: %d", softdevice_area_valid, firmware_loader_area_valid, app_installer_image_valid, softdevice_image_valid, firmware_loader_image_valid);
 #else

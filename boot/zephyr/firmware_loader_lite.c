@@ -14,7 +14,7 @@
 #include "bootutil/bootutil_log.h"
 #include "bootutil/bootutil_public.h"
 #include "bootutil/fault_injection_hardening.h"
-#include <liteinstalls.h>
+#include <bm_installs.h>
 
 #if defined(CONFIG_LITE_SECURE)
 #include <litesecure.h>
@@ -100,13 +100,13 @@ boot_go(struct boot_rsp *rsp)
 
 //add logic here
 
-    liteinstalls_init();
+    bm_installs_init();
 
-    if (liteinstalls_isvalid()) {
+    if (bm_installs_isvalid()) {
         off_t start_address = 0;
         size_t image_size = 0;
 
-        rc = liteinstalls_get_image_data(LISTINSTALLS_IMAGE_INDEX_SOFTDEVICE, &start_address, &image_size);
+        rc = bm_installs_get_image_data(BM_INSTALLS_IMAGE_INDEX_SOFTDEVICE, &start_address, &image_size);
 
         if (!rc) {
             fa_softdevice.fa_off = start_address;
@@ -130,7 +130,7 @@ invalid_softdevice:
 #ifdef CONFIG_BOOT_FIRMWARE_LOADER
         start_address = 0;
         image_size = 0;
-        rc = liteinstalls_get_image_data(LISTINSTALLS_IMAGE_INDEX_FIRMWARE_LOADER, &start_address, &image_size);
+        rc = bm_installs_get_image_data(BM_INSTALLS_IMAGE_INDEX_FIRMWARE_LOADER, &start_address, &image_size);
 
         if (!rc) {
             fa_firmware_loader.fa_off = start_address;
